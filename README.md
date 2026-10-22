@@ -1,36 +1,105 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MatchrLab
 
-## Getting Started
+Interne tool van RecruitrLAB. Een collega laadt een cv op plus wat vrije tekst, en Matchr zoekt zelf gericht vacatures: op jobboards én rechtstreeks op de websites van bedrijven die het per cv ontdekt. De interface voelt als een chat; elke zoekstap is live zichtbaar.
 
-First, run the development server:
+Stack: Next.js 16 (App Router, TypeScript, Tailwind 4), Neon Postgres via Drizzle, Anthropic SDK (Haiku voor alles, Sonnet voor de eindscoring), Brave Search, Adzuna, Jina Reader. Draait op Vercel.
+
+![Matchr](docs/screenshot-app.png)
+
+## Hoe een run verloopt
+
+Een run is een reeks korte stappen. De browser roept `POST /api/runs/:id/step` telkens opnieuw aan tot de status `done` of `failed` is; elke aanroep streamt zijn voortgang als Server-Sent Events en schrijft zijn resultaat weg. Daardoor loopt een run van vijf minuten nooit stuk op één functie-timeout, en kan een afgebroken run gewoon hervat worden (open de run in de zijbalk).
+
+| Stap | Wat gebeurt er | Model |
+| --- | --- | --- |
+| 1 Profiel | cv (pdf/docx) + vrije tekst → functietitels, skills, senioriteit, regio + straal, uitsluitingen, 6-8 zoekqueries | Haiku |
+| 2 Jobboards | Adzuna (be-endpoint) en VDAB, parallel. Filter op regio en uitsluitingen vóór enige LLM-call | geen |
+| 3 Bedrijven ontdekken | Haiku bedenkt 5-8 zoekopdrachten ("maakbedrijven ploegenwerk regio Mechelen"), Brave zoekt, resultaten → max 80 unieke domeinen minus de blocklist. Bedrijven die < 7 dagen geleden gecrawld zijn worden overgeslagen; hun bestaande vacatures gaan mee | Haiku |
+| 4 Jobpagina vinden | per domein, goedkoop-eerst: ATS-detectie → standaardpaden → Haiku kiest uit de homepage-links → Brave `site:domein vacature`. Niets gevonden → `ats = none`, niet opnieuw proberen | Haiku (enkel 4c) |
+| 5 Vacatures extraheren | ATS-feed als die er is, anders Haiku op de paginatekst (gewone fetch, Jina Reader voor JS-shells, alles door `page_cache`). Enkel titels → max 10 detailpagina's | Haiku |
+| 6 Scoren | dedupliceren op url en titel+bedrijf, Haiku-voorselectie over alles, top-30 naar Sonnet voor score 0-100 + één zin, +5 voor bedrijfssites | Haiku + Sonnet |
+
+Vervolgberichten in dezelfde thread: Haiku beslist of het een verfijning is (profiel aanpassen, opnieuw zoeken vanaf stap 2; eerder bezochte bedrijven worden hergebruikt) of een vraag over de resultaten (wordt beantwoord zonder nieuwe zoektocht). Klikken op een parameter-chip start een run met aangepaste parameters.
+
+Code: `src/lib/pipeline/` (één bestand per stap, elk met input/output-types), `src/lib/pipeline/orchestrator.ts` (stapmachine), `src/lib/ats/` (adapters), `src/lib/blocklist.ts`, `src/lib/geo.ts`.
+
+### VDAB
+
+De officiële VDAB-vacature-API vereist partnerregistratie op developer.vdab.be (IBM API Connect) en is niet publiek; de data mag bovendien enkel ongewijzigd herpubliceerd worden. Tot die toegang er is zoekt Matchr VDAB-vacatures via Brave met `site:vdab.be/vindeenjob`, wat per run 2 queries kost en enkel titel, url en snippet oplevert. Een echte VDAB-adapter hoort in `src/lib/pipeline/jobboards.ts` naast Adzuna.
+
+## Omgevingsvariabelen
+
+Zie `.env.example`. Lokaal in `.env.local`, op Vercel onder Settings → Environment Variables. Nooit waarden committen.
+
+| Naam | Verplicht | Waarvoor |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | ja | Haiku en Sonnet |
+| `DATABASE_URL` | ja | Neon Postgres (pooled connection string) |
+| `APP_PASSWORD` | ja | gedeeld teamwachtwoord; ook de sleutel waarmee sessiecookies getekend worden |
+| `BRAVE_SEARCH_API_KEY` | ja voor bedrijfsontdekking en VDAB | gratis tier, 2000 queries/maand |
+| `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | nee | zonder deze wordt Adzuna overgeslagen |
+| `JINA_API_KEY` | nee | r.jina.ai werkt zonder key op de gratis tier; een key geeft hogere limieten |
+| `ANTHROPIC_MONTHLY_BUDGET_EUR` | nee (standaard 50) | boven dit maandtotaal worden nieuwe runs geweigerd |
+
+## Database
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run db:generate   # nieuwe migratie na een schema-wijziging in src/lib/db/schema.ts
+npm run db:migrate    # migraties uitvoeren tegen DATABASE_URL (eenmalig vóór de eerste deploy)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Tabellen: `runs`, `messages`, `companies`, `jobs`, `matches`, `page_cache` (TTL 7 dagen), `usage_counters` (Brave-teller per maand). `runs.state` bevat de stapvoortgang en cursors zodat een run hervat kan worden.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Lokaal draaien
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+cp .env.example .env.local   # waarden invullen
+npm run db:migrate
+npm run dev
+```
 
-## Learn More
+Controle: `npm run verify` (typecheck, lint, tests, build). End-to-end zonder UI: `npm run demo` draait de pijplijn op `test/fixtures/cv-procesoperator.pdf` en faalt als er minder dan 10 vacatures of minder dan 3 van bedrijfssites uitkomen. Het voorbeeld-cv is fictief en wordt gemaakt door `npm run fixture:cv`.
 
-To learn more about Next.js, take a look at the following resources:
+## Een ATS of bron toevoegen
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**ATS** (vacatures op de bedrijfssite): maak `src/lib/ats/<naam>.ts` met een `AtsAdapter`:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `detect(html, links)`: zoek de signatuur in de homepage-HTML en geef de account-slug terug;
+- `listingUrl(slug)`: de publieke vacaturepagina, gebruikt als de feed faalt;
+- `fetchJobs(slug)`: de publieke feed, of `null` als er geen is (dan doet Haiku de extractie op `listingUrl`);
+- zet hem in de lijst in `src/lib/ats/index.ts` en voeg de naam toe aan `atsEnum` in `src/lib/db/schema.ts` (+ `npm run db:generate`).
 
-## Deploy on Vercel
+Status per ATS:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| ATS | Endpoint | Geverifieerd tegen een echte account |
+| --- | --- | --- |
+| Recruitee | `GET https://{slug}.recruitee.com/api/offers/` | ja |
+| Greenhouse | `GET https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true` | ja |
+| Lever | `GET https://api.lever.co/v0/postings/{slug}?mode=json` | ja |
+| SmartRecruiters | `GET https://api.smartrecruiters.com/v1/companies/{company}/postings` | ja |
+| Workable | `POST https://apply.workable.com/api/v3/accounts/{slug}/jobs` | nee |
+| Teamtailor | `GET https://{slug}.teamtailor.com/jobs.rss` | nee |
+| Personio | `GET https://{slug}.jobs.personio.de/xml` | nee |
+| Jobtoolz | geen publieke feed bekend; career site via generieke extractie | n.v.t. |
+| Talentfinder | geen publieke feed bekend; career page via generieke extractie | n.v.t. |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Jobboard** (externe bron): voeg een functie toe in `src/lib/pipeline/jobboards.ts` die `NormalizedJob[]` teruggeeft, roep ze aan in `searchJobboards`, en voeg de bron toe aan `jobSourceEnum` in het schema en aan `sourceLabel` in `src/components/Thread.tsx`.
+
+## Kostenregels
+
+Doel: < € 0,15 per run en < € 50 per maand bij 15 runs/dag. Alles wat kost staat in `src/lib/config.ts`.
+
+- Haiku voor alles behalve de eindscoring; Sonnet enkel voor de top-30. Modelnamen en prijzen in `config.ts`.
+- Geen pagina twee keer binnen 7 dagen (`page_cache`), geen bedrijf twee keer binnen 7 dagen (`companies.last_crawled_at`).
+- Per run: max 80 domeinen, max 10 detailpagina's per bedrijf, max 30 vacatures naar Sonnet, max 12 Brave-queries.
+- Brave: maandteller in `usage_counters`; boven 1900 stoppen we met zoeken en gaat de run verder zonder nieuwe bedrijven.
+- Elke LLM-call telt tokens × prijs (USD → EUR × 0,92) op in `runs.cost_estimate_eur`. De zijbalk toont de som per week en per maand.
+- Overschrijdt het maandtotaal `ANTHROPIC_MONTHLY_BUDGET_EUR`, dan weigert `POST /api/runs` nieuwe runs met een duidelijke melding (HTTP 402).
+- Vercel: `maxDuration = 300` op de step-route; de crawlstap geeft na 45 s de controle terug aan de client en gaat bij de volgende aanroep verder waar hij was.
+
+Ruwe schatting per run: ~80 Haiku-calls van gemiddeld 4k input-tokens (≈ € 0,03) + één Sonnet-call van ~12k input / 3k output (≈ € 0,05) + Brave (gratis) ≈ € 0,08.
+
+## Niet in fase 1
+
+Geen Indeed/LinkedIn-scraping, geen proxydiensten, geen vector-database, geen aparte Python-service, geen gebruikersbeheer, geen e-mail.
