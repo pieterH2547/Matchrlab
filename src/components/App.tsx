@@ -64,7 +64,7 @@ export function App({ me }: { me: string }) {
         let guard = 0;
         while (status !== "done" && status !== "failed" && guard++ < 60) {
           status = await runStep(runId, (ev) => {
-            if (ev.type === "steps") updateRunInThread({ id: runId, state: { ...(thread.find((r) => r.id === runId)?.state ?? { steps: [] }), steps: ev.steps } });
+            if (ev.type === "steps") setThread((t) => t.map((r) => (r.id === runId ? { ...r, state: { ...r.state, steps: ev.steps } } : r)));
             if (ev.type === "status") updateRunInThread({ id: runId, status: ev.status, state: ev.state });
             if (ev.type === "run" && ev.run) updateRunInThread(ev.run);
             if (ev.type === "error") setError(ev.message);
@@ -78,7 +78,6 @@ export function App({ me }: { me: string }) {
         void refreshIndex();
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [refreshIndex],
   );
 

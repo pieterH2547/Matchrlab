@@ -98,9 +98,10 @@ export async function createFollowupRun(input: { author: string; threadId: strin
   return run;
 }
 
+/** De laatste zoekrun in de thread (vragen tellen niet mee: die hebben geen eigen resultaten). */
 export async function latestRunInThread(threadId: string): Promise<Run | null> {
-  const rows = await db().select().from(schema.runs).where(eq(schema.runs.threadId, threadId)).orderBy(desc(schema.runs.id)).limit(1);
-  return rows[0] ?? null;
+  const rows = await db().select().from(schema.runs).where(eq(schema.runs.threadId, threadId)).orderBy(desc(schema.runs.id)).limit(10);
+  return rows.find((r) => r.state.answer === undefined) ?? rows[0] ?? null;
 }
 
 export async function matchesForRun(runId: number): Promise<MatchView[]> {
