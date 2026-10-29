@@ -63,6 +63,7 @@ export const ScoringSchema = z.object({
       sector: z.number().int().min(0).max(1),
       mobiliteit: z.number().int().min(0).max(1),
       contract: z.enum(["vast", "tijdelijk", "interim", "freelance", "onbekend"]),
+      distance_km: z.number().int().describe("Geschatte rijafstand in km tussen de regio van de kandidaat en de werkplek; -1 als de werkplek onbekend is"),
       employer_identifiable: z.boolean().describe("Is de eindwerkgever bij naam identificeerbaar (geen bureau 'voor een klant')?"),
       hard_blocker: z.string().describe("Bewezen harde eis die de kandidaat niet haalt, of lege string"),
       argument: z.string().describe("Eén concreet matchargument"),
@@ -135,6 +136,8 @@ export type RunState = {
   signals?: SignalView[];
   /** Max 3 commerciële acties. */
   actions?: ActionView[];
+  /** Run gestopt na het profiel omdat er geen woonplaats was. */
+  needsRegion?: boolean;
   kpi?: { verifiedJobs: number; proactive: number; relationsChecked: number; draftsSaved: number };
 };
 

@@ -9,7 +9,7 @@ import { db, schema } from "@/lib/db";
 import type { Run, Company, Job } from "@/lib/db/schema";
 import { CostMeter } from "@/lib/llm";
 import { LIMITS } from "@/lib/config";
-import { buildProfile } from "./profile";
+import { buildProfile, isVagueRegion } from "./profile";
 import { searchJobboards } from "./jobboards";
 import { discoverCompanies } from "./discover";
 import { findJobsPage } from "./findJobsPage";
@@ -57,6 +57,20 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
         state = setStep(state, "profile", { status: "running", detail: "cv en opdracht lezen" });
         emit({ type: "steps", steps: state.steps });
         const profile = await buildProfile({ cvText: run.cvText ?? "", freeText: run.freeText ?? "", previousProfile: run.profile }, meter);
+        if (isVagueRegion(profile.region)) {
+          // Zonder woonplaats zoeken we niet in heel Vlaanderen: eerst de regio vragen (snel en goedkoop).
+          state = {
+            ...setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · regio onbekend` }),
+            steps: setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · regio onbekend` }).steps.map((s) => (s.key === "profile" ? s : { ...s, status: "skipped" as const })),
+            intro: "Ik vind geen woonplaats in het cv. Vul de regio in (bv. Mechelen) bij Aanpassen of in het regioveld onderaan, dan zoek ik gericht.",
+            followups: [],
+            needsRegion: true,
+          };
+          await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "done", state });
+          await addCost(runId, meter);
+          emit({ type: "status", status: "done", state });
+          return "done";
+        }
         state = setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · ${profile.region} · ${profile.radius_km} km` });
         await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "jobboards", state });
         await addCost(runId, meter);
@@ -64,6 +78,12 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
         return "jobboards";
       }
       case "jobboards": {
+        if (isVagueRegion(run.profile?.region)) {
+          state = { ...state, steps: state.steps.map((st) => (st.key === "profile" ? st : { ...st, status: "skipped" as const })), intro: "Er is nog geen regio. Vul ze in bij Aanpassen (bv. Mechelen), dan zoek ik gericht.", followups: [], needsRegion: true };
+          await saveRun(runId, { status: "done", state });
+          emit({ type: "status", status: "done", state });
+          return "done";
+        }
         const profile = run.profile!;
         state = setStep(state, "jobboards", { status: "running", detail: "VDAB en Adzuna" });
         emit({ type: "steps", steps: state.steps });
@@ -186,6 +206,8 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
             !s.hardBlocker &&
             Boolean((names.get(s.job.id) ?? "").trim()) &&
             withinRadius(s.job.location, profile.region, profile.radius_km) !== false &&
+            // Afstand volgens de AI: buiten de straal (+5 km marge) = weg; onbekende werkplek enkel bij bedrijfssites.
+            (s.distanceKm >= 0 ? s.distanceKm <= profile.radius_km + 5 : s.job.source === "company_site") &&
             !isIntermediaryCompany(names.get(s.job.id) ?? "", s.job.url),
         );
         // Max 2 vacatures per werkgever, max 10 in totaal, beste eerst.

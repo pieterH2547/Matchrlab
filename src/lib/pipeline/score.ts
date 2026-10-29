@@ -26,6 +26,8 @@ Bij een onbekende harde vereiste geef je geen automatische positieve punten.
 
 Vul ook in:
 - contract: vast / tijdelijk / interim / freelance / onbekend, enkel op basis van wat in de vacature staat.
+- distance_km: geschatte afstand in km tussen de regio van de kandidaat en de werkplek (gebruik je kennis van
+  Belgische gemeenten); -1 enkel als de werkplek echt niet te bepalen is. "Vlaanderen" of "België" als werkplek = -1.
 - employer_identifiable: false als de eindwerkgever niet bij naam bekend is (bureau, "voor onze klant", anoniem).
 - hard_blocker: een bewezen harde eis (licentie, diploma, attest, taal) die de kandidaat aantoonbaar niet heeft; anders lege string.
 - argument: één concreet matchargument; risk: één concreet risico. Kort, informeel (je/jij), geen "u".
@@ -45,6 +47,7 @@ export type ScoredJob = {
   argument: string;
   risk: string;
   contract: "vast" | "tijdelijk" | "interim" | "freelance" | "onbekend";
+  distanceKm: number;
   employerIdentifiable: boolean;
   hardBlocker: string;
 };
@@ -109,6 +112,7 @@ export async function scoreJobs(profile: Profile, jobsIn: Job[], names: Map<numb
       argument: s.argument.trim(),
       risk: s.risk.trim(),
       contract: s.contract,
+      distanceKm: s.distance_km,
       employerIdentifiable: s.employer_identifiable,
       hardBlocker: s.hard_blocker.trim(),
     });

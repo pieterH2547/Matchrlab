@@ -33,9 +33,9 @@ export const LIMITS = {
   /** Max vacatures per werkgever, zodat één grote werkgever de lijst niet vult. */
   maxPerEmployer: 2,
   /** Max unieke bedrijfsdomeinen per run (stap 3). */
-  maxDomainsPerRun: 80,
+  maxDomainsPerRun: 30,
   /** Max detailpagina's per bedrijf (stap 5). */
-  maxDetailPagesPerCompany: 10,
+  maxDetailPagesPerCompany: 4,
   /** Max vacatures die naar het scoringsmodel gaan (stap 6). */
   maxJobsToScore: 30,
   /** Max vacatures per jobboard-bron per run. */
@@ -51,9 +51,9 @@ export const LIMITS = {
   /** Tijdsbudget per step-aanroep in ms; daarna geven we de controle terug aan de client. */
   stepTimeBudgetMs: 40_000,
   /** Max tijd per bedrijf in de crawlstap; trager = overslaan. */
-  perDomainTimeoutMs: 25_000,
+  perDomainTimeoutMs: 15_000,
   /** Max domeinen parallel crawlen. */
-  crawlConcurrency: 8,
+  crawlConcurrency: 10,
   /** Timeout per HTTP-fetch. */
   fetchTimeoutMs: 8_000,
   /** Max bytes per pagina. */

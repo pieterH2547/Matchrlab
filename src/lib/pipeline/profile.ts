@@ -11,7 +11,8 @@ en maakt daar een zoekprofiel van voor een vacaturezoektocht in België.
 
 Regels:
 - Functietitels: 3 tot 5 Nederlandstalige titels en synoniemen die werkgevers echt gebruiken (bv. "procesoperator", "productieoperator", "operator chemie").
-- Regio: leid de woonplaats af uit het cv; de vrije tekst van de collega overschrijft het cv altijd.
+- Regio: de woonplaats (gemeente) uit het cv; de vrije tekst van de collega overschrijft het cv altijd.
+  Staat er nergens een gemeente, geef dan een LEGE string. Nooit "Vlaanderen" of "België" invullen.
 - Straal: standaard 30 km, pas aan als het cv of de opdracht iets anders zegt. Leid geen woonplaats af zonder bewijs in het cv.
 - Uitsluitingen: wat de kandidaat of collega expliciet niet wil (ploegen, nachtwerk, interim, ...). Verzin er geen.
 - Senioriteit: totaal aantal jaren relevante ervaring, afgerond.
@@ -20,7 +21,7 @@ Regels:
 - Nooit velden verzinnen die niet uit cv of tekst volgen; gebruik dan een lege string of lege lijst.
 - positioning: max 3 korte regels in natuurlijk Vlaams: (1) doelrol + senioriteit, (2) max 3 bewezen sterktes, (3) sector/overdraagbaarheid + regio/pendel.
 - uncertainties: de 2-3 belangrijkste onzekerheden, telkens beginnend met "AANNAME:" of "ONBEKEND:" (bv. contracttype, beschikbaarheid, loonverwachting, mobiliteit, talen).
-- open_questions: max 3 beslissende open vragen aan de kandidaat. Geen batterij intakevragen.
+- open_questions: max 3 beslissende open vragen aan de kandidaat, informeel (je/jij, nooit "u"). Geen batterij intakevragen.
 - consent: "bevestigd" enkel als cv of opdracht expliciet zegt dat de kandidaat akkoord is met voorstelling bij werkgevers; anders "onbekend".
 - hard_requirements: diploma's, licenties en attesten die de kandidaat aantoonbaar heeft (bv. VCA, rijbewijs C, bachelor chemie).`;
 
@@ -43,7 +44,7 @@ export function normalizeProfile(p: Profile): Profile {
     sectors: dedupe(p.sectors).slice(0, 6),
     exclusions: dedupe(p.exclusions).slice(0, 10),
     search_queries: dedupe(p.search_queries).slice(0, 8),
-    region: p.region.trim() || "Vlaanderen",
+    region: p.region.trim(),
     radius_km: Math.min(150, Math.max(5, Math.round(p.radius_km || 30))),
     positioning: (p.positioning ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3),
     uncertainties: (p.uncertainties ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3),
@@ -54,6 +55,12 @@ export function normalizeProfile(p: Profile): Profile {
 }
 
 /** Korte samenvatting voor de zijbalk: "Procesoperator · Mechelen". */
+/** Is de regio te vaag om op te zoeken (leeg, een gewest of het land)? */
+export function isVagueRegion(region: string | null | undefined): boolean {
+  const r = (region ?? "").trim().toLowerCase();
+  return !r || /^(vlaanderen|vlaams gewest|flanders|belgi[eë]|belgium|wallonie|walloni[eë]|brussels gewest|onbekend|n\.?v\.?t\.?)$/.test(r);
+}
+
 export function profileSummary(p: Profile | null | undefined): string {
   if (!p) return "";
   return [p.job_titles[0], p.region].filter(Boolean).join(" · ");

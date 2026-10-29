@@ -25,8 +25,18 @@ const PICK_SYSTEM = `Je krijgt de links van de homepage van een bedrijf. Kies de
 "werken bij"-pagina van dat bedrijf leidt. Geef de volledige URL terug. Als er geen is, geef een lege string.
 Kies nooit een link naar een extern jobboard, sociale media of een pdf.`;
 
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
 function companyNameFromTitle(title: string, domain: string): string {
-  const cleaned = title.split(/[|–-]/)[0]?.trim();
+  const cleaned = decodeEntities(title).split(/[|–—-]/)[0]?.trim();
   if (cleaned && cleaned.length <= 60 && !/home|welkom|welcome/i.test(cleaned)) return cleaned;
   return domain.split(".")[0].replace(/-/g, " ");
 }

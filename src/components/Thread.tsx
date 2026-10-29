@@ -64,7 +64,7 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
   return (
     <div className="space-y-6">
       {run.profile && <CandidateCard profile={run.profile} />}
-      {run.profile && <Chips profile={run.profile} editable={isLatest && !running} onEdit={onEditProfile} />}
+      {run.profile && <Chips profile={run.profile} editable={isLatest && !running} onEdit={onEditProfile} autoOpen={Boolean(run.state.needsRegion && isLatest)} />}
       {run.state.steps.length > 0 && <Steps steps={run.state.steps} />}
       {run.status === "failed" && <p className="text-sm text-err">De run is gestopt: {run.state.error ?? "onbekende fout"}.</p>}
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
@@ -137,8 +137,9 @@ function CandidateCard({ profile }: { profile: Profile }) {
   );
 }
 
-function Chips({ profile, editable, onEdit }: { profile: Profile; editable: boolean; onEdit: (p: Partial<Profile>) => void }) {
-  const [editing, setEditing] = useState(false);
+function Chips({ profile, editable, onEdit, autoOpen = false }: { profile: Profile; editable: boolean; onEdit: (p: Partial<Profile>) => void; autoOpen?: boolean }) {
+  const [editing, setEditing] = useState(autoOpen);
+  const [regionError, setRegionError] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ title: string; region: string; radius: string; exclusions: string; years: string }>({
     title: profile.job_titles.join(", "),
     region: profile.region,
@@ -148,7 +149,7 @@ function Chips({ profile, editable, onEdit }: { profile: Profile; editable: bool
   });
   const chips: { label: string; value: string }[] = [
     { label: "Functie", value: profile.job_titles.slice(0, 2).join(" / ") },
-    { label: "Regio", value: `${profile.region} · ${profile.radius_km} km` },
+    { label: "Regio", value: profile.region ? `${profile.region} · ${profile.radius_km} km` : "onbekend" },
     { label: "Ervaring", value: `${profile.years_experience} jaar` },
     { label: "Uitsluiten", value: profile.exclusions.length ? profile.exclusions.join(", ") : "niets" },
   ];
@@ -158,6 +159,11 @@ function Chips({ profile, editable, onEdit }: { profile: Profile; editable: bool
         .split(",")
         .map((x) => x.trim())
         .filter(Boolean);
+    if (!draft.region.trim() || /^(vlaanderen|belgi[eë]|belgium)$/i.test(draft.region.trim())) {
+      setRegionError("Vul een gemeente in, bv. Mechelen.");
+      return;
+    }
+    setRegionError(null);
     const titles = split(draft.title);
     const radius = Math.min(150, Math.max(5, Number(draft.radius) || profile.radius_km));
     onEdit({
@@ -187,7 +193,10 @@ function Chips({ profile, editable, onEdit }: { profile: Profile; editable: bool
       {editing && (
         <div className="mt-3 border border-line rounded-xl p-4 grid gap-3 sm:grid-cols-2">
           <Field label="Functietitels (komma's)" value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} />
-          <Field label="Regio" value={draft.region} onChange={(v) => setDraft({ ...draft, region: v })} />
+          <div>
+            <Field label="Regio (gemeente)" value={draft.region} onChange={(v) => setDraft({ ...draft, region: v })} />
+            {regionError && <p className="mt-1 text-xs text-red-700">{regionError}</p>}
+          </div>
           <Field label="Straal (km)" value={draft.radius} onChange={(v) => setDraft({ ...draft, radius: v })} />
           <Field label="Ervaring (jaren)" value={draft.years} onChange={(v) => setDraft({ ...draft, years: v })} />
           <Field label="Uitsluiten (komma's)" value={draft.exclusions} onChange={(v) => setDraft({ ...draft, exclusions: v })} />

@@ -12,6 +12,8 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [region, setRegion] = useState("");
+  const [radius, setRadius] = useState("30");
   const fileInput = useRef<HTMLInputElement>(null);
 
   function pick(f: File | null | undefined) {
@@ -23,7 +25,9 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
   function submit() {
     if (busy) return;
     if (!text.trim() && !file) return;
-    onSubmit(text.trim(), file);
+    // Regio vooraf ingevuld: als eerste regel meegeven, de vrije tekst gaat altijd voor op het cv.
+    const prefix = region.trim() ? `Regio: ${region.trim()}, straal ${radius} km.` : "";
+    onSubmit([prefix, text.trim()].filter(Boolean).join("\n"), file);
     setText("");
     setFile(null);
     if (fileInput.current) fileInput.current.value = "";
@@ -83,7 +87,28 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
             </button>
           </div>
         </div>
-        <p className="mt-2 text-xs text-ink-faint">Een run duurt 2 tot 5 minuten. Je ziet elke stap terwijl Matchr zoekt.</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-soft">
+          <label className="inline-flex items-center gap-2">
+            <span>Regio</span>
+            <input
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              placeholder="uit het cv, of bv. Mechelen"
+              className="w-48 border border-line rounded-md px-2 py-1 text-sm text-ink focus:outline-none focus:border-accent"
+            />
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <span>straal</span>
+            <select value={radius} onChange={(e) => setRadius(e.target.value)} className="border border-line rounded-md px-2 py-1 text-sm text-ink bg-white">
+              {["10", "20", "30", "40", "50"].map((r) => (
+                <option key={r} value={r}>
+                  {r} km
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="text-ink-faint ml-auto">Een run duurt 1 tot 3 minuten.</span>
+        </div>
       </div>
     </div>
   );

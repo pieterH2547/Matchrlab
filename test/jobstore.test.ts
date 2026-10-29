@@ -62,3 +62,13 @@ describe("prefilterJobs", () => {
     expect(prefilterJobs(jobsIn, profile).map((j) => j.url)).toEqual(["https://chemco.be/jobs/1"]);
   });
 });
+
+import { isVagueRegion } from "@/lib/pipeline/profile";
+describe("isVagueRegion", () => {
+  it("vaag: leeg, gewest of land", () => {
+    for (const r of ["", "Vlaanderen", "België", "belgie", "Belgium"]) expect(isVagueRegion(r)).toBe(true);
+  });
+  it("concreet: een gemeente", () => {
+    for (const r of ["Mechelen", "Gentbrugge", "Bredene"]) expect(isVagueRegion(r)).toBe(false);
+  });
+});
