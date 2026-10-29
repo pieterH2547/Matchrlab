@@ -49,7 +49,7 @@ function UserMessage({ text, attachment }: { text: string; attachment?: { name: 
             </span>
           </div>
         )}
-        {text && <div className="bg-paper-soft rounded-xl px-4 py-3 text-[15px] whitespace-pre-wrap">{text}</div>}
+        {text && <div className="bg-paper-soft rounded-2xl px-4 py-2.5 text-[15px] whitespace-pre-wrap">{text}</div>}
       </div>
     </div>
   );
@@ -70,8 +70,8 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
 
       {run.matches.length > 0 && (
-        <Section title={`A · Top ${run.matches.length} passende vacatures`}>
-          <div className="space-y-2">
+        <Section title={`${run.matches.length} passende vacatures`}>
+          <div className="divide-y divide-line">
             {run.matches.map((m) => (
               <ResultCard key={m.jobId} m={m} />
             ))}
@@ -80,9 +80,9 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       )}
 
       {done && (run.state.employers?.length ?? 0) > 0 && (
-        <Section title={`B · ${run.state.employers!.length} interessante werkgevers`}>
-          <p className="text-xs text-ink-faint mb-2">Ook zonder passende vacature. Enkel wat Matchr zelf zag; een bedrijf zonder vacature is een potentiële werkgever, geen bewezen aanwervingskans.</p>
-          <div className="space-y-2">
+        <Section title={`${run.state.employers!.length} interessante werkgevers`}>
+          <p className="text-xs text-ink-faint mt-2">Een bedrijf zonder vacature is een potentiële werkgever, geen bewezen aanwervingskans.</p>
+          <div className="divide-y divide-line">
             {run.state.employers!.map((e) => (
               <EmployerCard key={e.domain} e={e} />
             ))}
@@ -105,7 +105,7 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       {done && run.state.followups && run.state.followups.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {run.state.followups.map((f) => (
-            <button key={f} type="button" onClick={() => onFollowup(f)} className="text-sm border border-line rounded-full px-3 py-1.5 hover:border-accent hover:text-accent">
+            <button key={f} type="button" onClick={() => onFollowup(f)} className="text-sm border border-line rounded-full px-3.5 py-1.5 text-ink-soft hover:border-navy hover:text-navy">
               {f}
             </button>
           ))}
@@ -118,54 +118,53 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="eyebrow text-navy mb-3 flex items-center gap-3">
-        <span className="inline-block w-6 h-[2px] bg-gold" aria-hidden />
-        {title}
-      </h3>
+      <h3 className="text-[13px] font-semibold text-navy mb-1 pb-2 border-b border-line">{title}</h3>
       {children}
     </section>
   );
 }
 
 function EmployerCard({ e }: { e: EmployerView }) {
-  const badge = e.hasMatchingJob
-    ? { text: "Passende vacature", cls: "bg-green-50 text-green-800" }
-    : e.openJobs > 0
-      ? { text: `Bewezen: ${e.openJobs} open vacature${e.openJobs === 1 ? "" : "s"}, andere functies`, cls: "bg-accent-soft text-accent" }
-      : { text: "Potentiële werkgever · geen vacature gevonden", cls: "bg-paper-soft text-ink-soft" };
+  const status = e.hasMatchingJob ? "Passende vacature" : e.openJobs > 0 ? `${e.openJobs} open vacature${e.openJobs === 1 ? "" : "s"}, andere functies` : "Geen vacature gevonden · potentiële werkgever";
+  const dot = e.hasMatchingJob ? "bg-ok" : e.openJobs > 0 ? "bg-navy" : "bg-ink-faint";
   return (
-    <div className="border border-line rounded-xl p-4">
+    <article className="py-5 first:pt-1">
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-medium">{e.name}</span>
+        <a href={e.website} target="_blank" rel="noopener noreferrer" className="group text-[16px] font-semibold text-navy">
+          <span className="group-hover:underline underline-offset-4 decoration-1">{e.name}</span>
+          <span className="ml-1 text-ink-faint group-hover:text-navy" aria-hidden>
+            ↗
+          </span>
+        </a>
         <span className="text-sm text-ink-soft">{[e.municipality, e.distanceKm !== null ? `${e.distanceKm} km` : null].filter(Boolean).join(" · ")}</span>
       </div>
-      {e.activity && <div className="text-sm text-ink-soft">{e.activity}</div>}
-      {e.why && <div className="text-sm mt-1">{e.why}</div>}
-      {e.signal && <div className="text-xs mt-1 text-ink-soft">{e.signal}</div>}
-      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        <span className={`rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.text}</span>
-        <a href={e.website} target="_blank" rel="noopener noreferrer" className="rounded-full px-2 py-0.5 bg-paper-soft text-accent hover:underline">
-          Website →
-        </a>
+      {e.activity && <div className="mt-0.5 text-sm text-ink-soft">{e.activity}</div>}
+      {e.why && <p className="mt-2 text-[14.5px] leading-relaxed">{e.why}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${dot}`} aria-hidden />
+          {status}
+        </span>
+        {e.signal && <span>{e.signal}</span>}
         {e.careersUrl && (
-          <a href={e.careersUrl} target="_blank" rel="noopener noreferrer" className="rounded-full px-2 py-0.5 bg-paper-soft text-accent hover:underline">
-            Jobpagina →
+          <a href={e.careersUrl} target="_blank" rel="noopener noreferrer" className="text-navy hover:underline underline-offset-4">
+            Jobpagina ↗
           </a>
         )}
       </div>
       <ContactLine email={e.contactEmail ?? null} source={e.contactSource ?? null} subject={`Kandidaat voor ${e.name}`} />
-    </div>
+    </article>
   );
 }
 
 /** Contactadres om de kandidaat voor te stellen: klikbaar (mail) en kopieerbaar, met de vindplaats. */
 function ContactLine({ email, source, subject }: { email: string | null; source: string | null; subject: string }) {
   const [copied, setCopied] = useState(false);
-  if (!email) return <div className="mt-2 text-xs text-ink-faint">Geen mailadres gevonden op de vacature of de website.</div>;
+  if (!email) return <div className="mt-2 text-xs text-ink-faint">Geen mailadres op de vacature of de website.</div>;
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-      <a href={`mailto:${email}?subject=${encodeURIComponent(subject)}`} className="font-medium text-accent hover:underline break-all">
-        ✉ {email}
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+      <a href={`mailto:${email}?subject=${encodeURIComponent(subject)}`} className="font-medium text-navy underline underline-offset-4 decoration-gold decoration-2 break-all">
+        {email}
       </a>
       <button
         type="button"
@@ -175,11 +174,11 @@ function ContactLine({ email, source, subject }: { email: string | null; source:
             setTimeout(() => setCopied(false), 1500);
           });
         }}
-        className="text-xs rounded-md border border-line px-2 py-0.5 hover:bg-paper-soft"
+        className="text-xs text-ink-soft hover:text-navy"
       >
         {copied ? "Gekopieerd" : "Kopieer"}
       </button>
-      {source && <span className="text-xs text-ink-faint">gevonden op: {source}</span>}
+      {source && <span className="text-xs text-ink-faint">{source}</span>}
     </div>
   );
 }
@@ -234,8 +233,8 @@ function RunSummary({ stats, cost }: { stats: RunStats; cost: number }) {
   const pf = f?.prefilter;
   const sc = f?.scoring;
   return (
-    <details className="border border-line rounded-xl px-4 py-3 text-sm">
-      <summary className="cursor-pointer text-ink-soft">
+    <details className="text-sm">
+      <summary className="cursor-pointer list-none text-[13px] text-ink-faint hover:text-navy">
         Run-overzicht en diagnose{stats.failures?.length ? <span className="ml-2 text-warn">· {stats.failures.length} bron(nen) met problemen</span> : null}
       </summary>
 
@@ -365,16 +364,16 @@ function CandidateCard({ profile }: { profile: Profile }) {
   if (!lines.length) return null;
   return (
     <Section title="Kandidaat">
-      <div className="border border-line rounded-xl p-4 bg-paper-soft space-y-2">
+      <div className="pt-3 space-y-1.5">
         {lines.map((l) => (
-          <p key={l} className="text-[15px] leading-snug">
+          <p key={l} className="text-[15px] leading-relaxed">
             {l}
           </p>
         ))}
         {unsure.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
             {unsure.map((u) => (
-              <span key={u} className="text-xs rounded-full px-2 py-0.5 bg-paper border border-line text-ink-soft">
+              <span key={u} className="text-xs text-ink-soft">
                 {u}
               </span>
             ))}
@@ -472,20 +471,31 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 }
 
 function Steps({ steps }: { steps: StepState[] }) {
-  const glyph: Record<StepState["status"], string> = { done: "✓", running: "●", waiting: "○", skipped: "–", error: "!" };
-  const colour: Record<StepState["status"], string> = { done: "text-ok", running: "text-accent", waiting: "text-ink-faint", skipped: "text-ink-faint", error: "text-err" };
-  return (
-    <ol className="mono text-[13px] border-l-2 border-line pl-4 space-y-1.5">
+  const glyph: Record<StepState["status"], string> = { done: "✓", running: "●", waiting: "·", skipped: "–", error: "!" };
+  const colour: Record<StepState["status"], string> = { done: "text-ink-faint", running: "text-gold", waiting: "text-ink-faint", skipped: "text-ink-faint", error: "text-err" };
+  const finished = steps.every((s) => s.status === "done" || s.status === "skipped");
+  const list = (
+    <ol className="text-[13px] space-y-1.5 text-ink-soft">
       {steps.map((s) => (
-        <li key={s.key} className="flex gap-2">
-          <span className={`${colour[s.status]} w-3 shrink-0 ${s.status === "running" ? "pulse" : ""}`}>{glyph[s.status]}</span>
-          <span className={s.status === "waiting" ? "text-ink-faint" : "text-ink"}>
+        <li key={s.key} className="flex gap-2.5">
+          <span className={`${colour[s.status]} w-3 shrink-0 text-center ${s.status === "running" ? "pulse" : ""}`}>{glyph[s.status]}</span>
+          <span className={s.status === "running" ? "text-navy" : ""}>
             {s.label}
-            {s.detail ? <span className="text-ink-soft"> · {s.detail}</span> : null}
+            {s.detail ? <span className="text-ink-faint"> — {s.detail}</span> : null}
           </span>
         </li>
       ))}
     </ol>
+  );
+  if (!finished) return list;
+  return (
+    <details className="group text-[13px]">
+      <summary className="cursor-pointer list-none text-ink-faint hover:text-navy">
+        <span className="group-open:hidden">Toon hoe Matchr zocht ({steps.length} stappen)</span>
+        <span className="hidden group-open:inline">Verberg stappen</span>
+      </summary>
+      <div className="mt-2">{list}</div>
+    </details>
   );
 }
 
@@ -525,11 +535,12 @@ function VerificationBadge({ v }: { v: string }) {
   const flags = (flagPart ?? "").split(",").map((f) => f.trim()).filter(Boolean);
   return (
     <>
-      <span title={reason || undefined} className={`rounded-full px-2 py-0.5 ${active ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
-        {active ? "✓ Gecontroleerd: open" : "Niet geverifieerd"}
+      <span title={reason || undefined} className="inline-flex items-center gap-1.5">
+        <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-ok" : "bg-gold"}`} aria-hidden />
+        {active ? "Gecontroleerd: open" : "Niet geverifieerd"}
       </span>
       {flags.map((f) => (
-        <span key={f} className="rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">
+        <span key={f} className="text-warn">
           {f.charAt(0).toUpperCase() + f.slice(1)}
         </span>
       ))}
@@ -541,34 +552,30 @@ function ResultCard({ m }: { m: MatchView }) {
   const src = sourceLabel(m.source);
   const score10 = Math.round(m.score / 10);
   return (
-    <div className="flex gap-4 items-start border border-line rounded-xl p-4 bg-paper transition-shadow hover:shadow-[0_2px_12px_rgba(17,24,39,0.06)]">
-      <div className="mono w-12 h-12 shrink-0 rounded-lg bg-navy text-white flex flex-col items-center justify-center leading-none">
-        <span className="text-lg font-semibold">{score10}</span>
-        <span className="text-[10px] text-gold">/10</span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <a href={m.url} target="_blank" rel="noopener noreferrer" className="font-medium leading-snug hover:text-accent hover:underline">
-          {m.title}
-        </a>
-        <div className="text-sm text-ink-soft truncate">{[m.company, m.location].filter(Boolean).join(" · ")}</div>
-        <div className="text-sm mt-1">
-          <span className="text-ok">+</span> {m.argument || m.reason}
-        </div>
-        {m.risk && (
-          <div className="text-sm mt-0.5 text-ink-soft">
-            <span className="text-warn">!</span> {m.risk}
-          </div>
-        )}
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          <span className={`rounded-full px-2 py-0.5 ${src.cls}`}>{src.text}</span>
-          <VerificationBadge v={m.verification} />
-          <span className="rounded-full px-2 py-0.5 bg-paper-soft text-ink-soft">peildatum: {age(m.firstSeenAt)}</span>
-          <a href={m.url} target="_blank" rel="noopener noreferrer" className="rounded-full px-2 py-0.5 bg-paper-soft text-accent hover:underline">
-            Vacature openen →
+    <article className="py-5 first:pt-1">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <a href={m.url} target="_blank" rel="noopener noreferrer" className="group text-[16px] font-semibold leading-snug text-navy">
+            <span className="group-hover:underline underline-offset-4 decoration-1">{m.title}</span>
+            <span className="ml-1 text-ink-faint group-hover:text-navy" aria-hidden>
+              ↗
+            </span>
           </a>
+          <div className="mt-0.5 text-sm text-ink-soft">{[m.company, m.location].filter(Boolean).join(" · ")}</div>
         </div>
-        <ContactLine email={m.contactEmail} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} />
+        <div className="shrink-0 text-right leading-none tabular-nums">
+          <span className="text-2xl font-semibold text-navy">{score10}</span>
+          <span className="text-xs text-ink-faint">/10</span>
+        </div>
       </div>
-    </div>
+      <p className="mt-3 text-[14.5px] leading-relaxed text-ink">{m.argument || m.reason}</p>
+      {m.risk && <p className="mt-1 text-[14px] leading-relaxed text-ink-soft">Risico: {m.risk}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
+        <span>{src.text}</span>
+        <VerificationBadge v={m.verification} />
+        <span>{age(m.firstSeenAt)}</span>
+      </div>
+      <ContactLine email={m.contactEmail} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} />
+    </article>
   );
 }

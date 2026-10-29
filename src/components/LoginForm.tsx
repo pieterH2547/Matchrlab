@@ -42,7 +42,7 @@ export function LoginForm() {
         />
       </label>
       {error && <p className="text-sm text-err">{error}</p>}
-      <button type="submit" disabled={busy} className="w-full bg-navy text-white rounded-full py-2.5 font-semibold hover:bg-navy-2 disabled:opacity-60">
+      <button type="submit" disabled={busy} className="w-full bg-navy text-white rounded-lg py-2.5 font-medium hover:bg-navy-2 disabled:opacity-60">
         {busy ? "Even geduld…" : "Verder"}
       </button>
       <p className="text-xs text-ink-faint">Je blijft 30 dagen aangemeld op dit toestel.</p>

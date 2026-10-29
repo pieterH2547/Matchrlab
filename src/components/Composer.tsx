@@ -34,10 +34,10 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
   }
 
   return (
-    <div className="shrink-0 border-t border-line bg-paper px-4 py-3">
+    <div className="shrink-0 bg-paper px-4 pt-2 pb-4">
       <div className="mx-auto w-full max-w-[760px]">
         <div
-          className={`relative border rounded-xl bg-paper ${dragging ? "border-accent bg-accent-soft" : "border-line"}`}
+          className={`relative border rounded-2xl bg-paper shadow-[0_1px_2px_rgba(27,24,69,0.04),0_8px_24px_rgba(27,24,69,0.05)] ${dragging ? "border-navy bg-accent-soft" : "border-line"}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragging(true);
@@ -80,26 +80,26 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
                 <path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l9-9a3.5 3.5 0 0 1 5 5l-9 9a1.5 1.5 0 0 1-2.1-2.1l8.3-8.3" />
               </svg>
             </button>
-            <button type="button" aria-label="Verzenden" onClick={submit} disabled={busy || (!text.trim() && !file)} className="w-9 h-9 rounded-md bg-accent text-white flex items-center justify-center disabled:opacity-40">
+            <button type="button" aria-label="Verzenden" onClick={submit} disabled={busy || (!text.trim() && !file)} className="w-9 h-9 rounded-full bg-navy text-white flex items-center justify-center disabled:bg-line disabled:text-ink-faint">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
                 <path d="M12 19V5M5 12l7-7 7 7" />
               </svg>
             </button>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-soft">
+        <div className="mt-2 px-1 flex flex-wrap items-center gap-3 text-xs text-ink-faint">
           <label className="inline-flex items-center gap-2">
             <span>Regio</span>
             <input
               value={region}
               onChange={(e) => setRegion(e.target.value)}
               placeholder="uit het cv, of bv. Mechelen"
-              className="w-48 border border-line rounded-md px-2 py-1 text-sm text-ink focus:outline-none focus:border-accent"
+              className="w-44 bg-transparent border-b border-line px-1 py-0.5 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-navy"
             />
           </label>
           <label className="inline-flex items-center gap-2">
             <span>straal</span>
-            <select value={radius} onChange={(e) => setRadius(e.target.value)} className="border border-line rounded-md px-2 py-1 text-sm text-ink bg-white">
+            <select value={radius} onChange={(e) => setRadius(e.target.value)} className="bg-transparent border-b border-line px-1 py-0.5 text-sm text-ink focus:outline-none focus:border-navy">
               {["10", "20", "30", "40", "50"].map((r) => (
                 <option key={r} value={r}>
                   {r} km
@@ -107,7 +107,7 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
               ))}
             </select>
           </label>
-          <span className="text-ink-faint ml-auto">Een run duurt 1 tot 3 minuten.</span>
+          <span className="ml-auto">1 tot 3 minuten per run</span>
         </div>
       </div>
     </div>

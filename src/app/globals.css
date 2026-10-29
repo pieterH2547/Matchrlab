@@ -3,20 +3,20 @@
 :root {
   /* RecruitrLAB-huisstijl (recruitrlab.be): navy, goud, warm papier. */
   --accent: #1b1845;
-  --accent-soft: #ecebf4;
+  --accent-soft: #f1f0f6;
   --gold: #febc14;
   --gold-deep: #e0a410;
   --gold-soft: #fff4d6;
   --navy: #1b1845;
   --navy-2: #26225a;
   --ink: #1b1845;
-  --ink-soft: #5f5f6b;
-  --ink-faint: #9a98a6;
-  --line: #e8e5dc;
+  --ink-soft: #62616d;
+  --ink-faint: #a3a1ad;
+  --line: #ecebe6;
   --paper: #ffffff;
-  --paper-soft: #f4f2ec;
-  --canvas: #fafaf7;
-  --sidebar: #1b1845;
+  --paper-soft: #f5f4f0;
+  --canvas: #ffffff;
+  --sidebar: #f8f7f4;
   --ok: #15803d;
   --warn: #b45309;
   --err: #b91c1c;

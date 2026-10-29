@@ -3,7 +3,7 @@
 /** Dunne balk boven de thread: zijbalk tonen/verbergen en de huidige kandidaat. Merk staat in de zijbalk. */
 export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen, title }: { onNewRun: () => void; onToggleSidebar: () => void; sidebarOpen: boolean; title?: string | null }) {
   return (
-    <header className="h-12 shrink-0 flex items-center px-3 gap-2 border-b border-line/70 bg-paper/80 backdrop-blur">
+    <header className="h-12 shrink-0 flex items-center px-3 gap-2 bg-paper">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -24,9 +24,9 @@ export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen, title }: { onNe
           </span>
         </span>
       )}
-      <span className="text-sm text-ink-soft truncate">{title ?? ""}</span>
+      <span className="text-[13px] text-ink-faint truncate">{title ?? ""}</span>
       {!sidebarOpen && (
-        <button type="button" onClick={onNewRun} className="ml-auto text-sm font-semibold rounded-full px-4 py-1.5 bg-gold text-navy hover:bg-gold-deep">
+        <button type="button" onClick={onNewRun} className="ml-auto text-sm font-medium rounded-lg px-3 py-1.5 bg-navy text-white hover:bg-navy-2">
           Nieuwe run
         </button>
       )}

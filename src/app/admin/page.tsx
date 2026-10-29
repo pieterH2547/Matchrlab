@@ -9,16 +9,16 @@ async function AdminWithSession() {
   if (!session) redirect("/login");
   return (
     <main className="min-h-screen">
-      <header className="h-16 bg-navy text-white flex items-center px-5 gap-3">
+      <header className="h-14 border-b border-line flex items-center px-5 gap-3">
         <Link href="/" className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-white.png" alt="RecruitrLAB" width={56} height={34} className="h-8 w-auto" />
-          <span className="font-semibold text-[17px]">
+          <img src="/logo-navy-sm.png" alt="RecruitrLAB" width={40} height={23} className="h-[22px] w-auto" />
+          <span className="font-semibold text-[16px] text-navy">
             Matchr<span className="text-gold">.</span>
           </span>
         </Link>
-        <span className="eyebrow text-white/50">Instellingen</span>
-        <Link href="/" className="ml-auto text-sm font-semibold rounded-full px-4 py-1.5 bg-gold text-navy hover:bg-gold-deep">
+        <span className="text-[13px] text-ink-faint">Instellingen</span>
+        <Link href="/" className="ml-auto text-sm text-ink-soft hover:text-navy">
           ← Terug naar Matchr
         </Link>
       </header>
