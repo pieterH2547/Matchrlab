@@ -175,7 +175,7 @@ export function withinRadius(location: string | null | undefined, region: string
   const center = geocode(region);
   if (!center) return null;
   // Land- en gewestniveau ("België", "Vlaanderen") is geen plaats: onbeslisbaar.
-  if (/\b(belgi[eë]|belgium|vlaanderen|flanders|walloni[eë]|nationaal|heel het land)\b/i.test(location ?? "")) return null;
+  if (/(^|[^a-z])(belgi[eë]|belgium|vlaanderen|flanders|walloni[eë]|nationaal|heel het land)(?![a-z])/i.test(location ?? "")) return null;
   const p = geocode(location);
   if (!p) return null;
   return distanceKm(center, p) <= radiusKm;
