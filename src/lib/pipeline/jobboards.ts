@@ -251,14 +251,19 @@ type GoogleJobsData = { jobs_results?: GoogleJob[]; error?: string; serpapi_pagi
  * Varianten van de Google Jobs-vraag. Google kent niet elke Belgische gemeente in de zoekvraag en geeft
  * dan 0 resultaten; daarom proberen we bij 0 de volgende variant (locatie als parameter, Engels, provincie).
  */
+/** SerpApi gebruikt Engelse namen voor grote steden ("Antwerpen, Belgium" is onbekend, "Antwerp, Belgium" niet). */
+const SERPAPI_CITY: Record<string, string> = { antwerpen: "Antwerp", gent: "Ghent", brussel: "Brussels", bruxelles: "Brussels", brugge: "Bruges", luik: "Liege", "liège": "Liege", bergen: "Mons", namen: "Namur", leuven: "Leuven", mechelen: "Mechelen" };
+
 export function googleJobsVariants(title: string, profile: Profile): Record<string, string>[] {
   const r = profile.region.trim();
+  const loc = SERPAPI_CITY[r.toLowerCase()] ?? r;
   return [
     // Getest: "operator Mechelen" in de zoekvraag geeft 0, met location="Mechelen, Belgium" wel resultaten.
-    { q: title, location: `${r}, Belgium`, hl: "nl", gl: "be" },
+    { q: title, location: `${loc}, Belgium`, hl: "nl", gl: "be" },
+    // SerpApi kent niet elke gemeente als location ("Unsupported location"): dan het land als location.
+    { q: `${title} ${r}`.trim(), location: "Belgium", hl: "nl", gl: "be" },
     { q: `${title} ${r}`.trim(), hl: "nl", gl: "be" },
     { q: `${title} ${r}`.trim(), hl: "en", gl: "be" },
-    { q: `${title} Belgium`, hl: "en", gl: "be" },
   ];
 }
 
@@ -277,7 +282,7 @@ async function serpApiJobs(key: string, params: Record<string, string>, token?: 
   return { status: r.status, data };
 }
 
-const NO_RESULTS = /hasn't returned any results|no results/i;
+const NO_RESULTS = /hasn't returned any results|no results|unsupported .*location/i;
 
 /** Google Jobs via SerpApi, met paginering (next_page_token) tot LIMITS.googleJobsPagesPerQuery per titel. */
 export async function searchGoogleJobs(profile: Profile): Promise<SourceOut & { variant?: number }> {

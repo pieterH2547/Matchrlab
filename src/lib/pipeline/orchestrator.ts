@@ -325,6 +325,13 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
             aboveThreshold: passing.filter((s) => aiIds.has(s.job.id)).length,
           };
         }
+        if (result.scored.length > 0) {
+          // De AI-intro komt uit één scoringsbatch; de tekst moet kloppen met wat er echt getoond wordt.
+          const top = result.scored[0];
+          const topName = names.get(top.job.id) ?? "";
+          const toCheck = (funnel.toVerify?.contract ?? 0) + (funnel.toVerify?.werkgever ?? 0);
+          result.intro = `${result.scored.length} ${result.scored.length === 1 ? "vacature haalt" : "vacatures halen"} ${threshold / 10}/10 of meer (uit ${dedupedJobs.length} unieke). De sterkste: ${top.job.title}${topName ? ` bij ${topName}` : ""} (${Math.round(top.score / 10)}/10).${toCheck ? " Bij sommige moet je contract of werkgever nog nagaan: zie de labels." : ""}`;
+        }
         if (result.scored.length === 0) {
           result.intro = explainNoMatches({ found: funnel.found ?? 0, siteJobs: funnel.siteJobs ?? 0, unique: dedupedJobs.length, checked: toVerify.length, closed, toScoring: shortlist.length, scored: scoredCount, reasons }, threshold);
           result.followups = ["Zoek in een grotere straal", "Zoek met een verwante functietitel"];
