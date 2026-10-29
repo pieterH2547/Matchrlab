@@ -234,7 +234,7 @@ export const STEP_LABELS: Record<StepState["key"], string> = {
 };
 
 export function initialSteps(skipProfile = false): StepState[] {
-  return (Object.keys(STEP_LABELS) as StepState["key"][]).map((key) => ({
+  return (Object.keys(STEP_LABELS) as StepState["key"][]).filter((key) => key !== "signals").map((key) => ({
     key,
     label: STEP_LABELS[key],
     status: skipProfile && key === "profile" ? "skipped" : "waiting",

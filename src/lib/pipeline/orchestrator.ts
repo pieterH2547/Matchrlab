@@ -18,9 +18,7 @@ import { preselect, scoreJobs } from "./score";
 import { prefilterJobs, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
 import { withinRadius } from "@/lib/geo";
 import { isIntermediaryCompany } from "@/lib/blocklist";
-import type { RunState, StepState, NormalizedJob, Profile, SignalView, ActionView, MatchView } from "./types";
-import { findSignal } from "./signals";
-import { planActions } from "./actions";
+import type { RunState, StepState, NormalizedJob, Profile } from "./types";
 
 export type Emit = (event: { type: "steps"; steps: StepState[] } | { type: "status"; status: Run["status"]; state: RunState } | { type: "error"; message: string }) => void;
 
@@ -182,18 +180,20 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
             withinRadius(s.job.location, profile.region, profile.radius_km) !== false &&
             !isIntermediaryCompany(names.get(s.job.id) ?? "", s.job.url),
         );
-        // Eén functie per werkgever (de beste), max 5 werkgevers.
-        const perEmployer = new Map<string, (typeof passing)[number]>();
-        for (const s of passing) {
-          const key = (names.get(s.job.id) ?? "").toLowerCase().replace(/\b(nv|bv|bvba|sa|srl|cvba)\b/g, "").replace(/[^a-z0-9]/g, "");
-          const prev = perEmployer.get(key);
-          if (!prev || s.score > prev.score) perEmployer.set(key, s);
-        }
-        result.scored = Array.from(perEmployer.values())
-          .sort((a, b) => b.score - a.score)
-          .slice(0, LIMITS.maxEmployers);
+        // Max 2 vacatures per werkgever, max 10 in totaal, beste eerst.
+        const perEmployer = new Map<string, number>();
+        result.scored = passing
+          .sort((x, y) => y.score - x.score)
+          .filter((s) => {
+            const key = (names.get(s.job.id) ?? "").toLowerCase().replace(/\b(nv|bv|bvba|sa|srl|cvba)\b/g, "").replace(/[^a-z0-9]/g, "");
+            const n = perEmployer.get(key) ?? 0;
+            if (n >= LIMITS.maxPerEmployer) return false;
+            perEmployer.set(key, n + 1);
+            return true;
+          })
+          .slice(0, LIMITS.maxResults);
         if (scoredCount > 0 && result.scored.length === 0) {
-          result.intro = `Ik bekeek ${scoredCount} vacatures, maar geen enkele haalt 6/10 bij een identificeerbare eindwerkgever met vast contract.`;
+          result.intro = `Ik bekeek ${scoredCount} vacatures, maar geen enkele haalt 6/10 bij een rechtstreekse werkgever met vast contract.`;
           result.followups = ["Zoek in een grotere straal", "Zoek met een verwante functietitel"];
         }
         await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
@@ -203,55 +203,22 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
             .values(result.scored.map((s, i) => ({ runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1 })));
         }
         state = {
-          ...setStep(state, "score", { status: "done", detail: `${scoredCount} gescoord · ${result.scored.length} werkgever(s) ≥ 6/10` }),
+          ...setStep(state, "score", { status: "done", detail: `${scoredCount} gescoord · ${result.scored.length} passend (≥ 6/10)` }),
           intro: result.intro,
           followups: result.followups,
-        };
-        await saveRun(runId, { status: "signals", state });
-        await addCost(runId, meter);
-        emit({ type: "status", status: "signals", state });
-        return "signals";
-      }
-      case "signals": {
-        const profile = run.profile!;
-        state = setStep(state, "signals", { status: "running", detail: "werkgevers zonder open functie nagaan" });
-        emit({ type: "steps", steps: state.steps });
-        const matches = await matchViews(runId);
-        const slots = Math.max(0, LIMITS.maxEmployers - matches.length);
-        const signals: SignalView[] = [];
-        if (slots > 0 && (state.domains?.length ?? 0) > 0) {
-          const taken = new Set(matches.map((m) => m.company.toLowerCase()));
-          const rows = await db().select().from(schema.companies).where(inArray(schema.companies.domain, state.domains!));
-          const byDomain = new Map(rows.map((c) => [c.domain, c]));
-          const pool = state
-            .domains!.map((d) => byDomain.get(d))
-            .filter((c): c is Company => Boolean(c))
-            .filter((c) => !isIntermediaryCompany(c.name, c.domain) && !(c.notes ?? "").startsWith("tussenpersoon") && !taken.has(companyLabel(c).toLowerCase()))
-            .slice(0, LIMITS.maxSignalChecks);
-          let checked = 0;
-          for (let i = 0; i < pool.length && signals.length < slots; i += 3) {
-            const batch = pool.slice(i, i + 3);
-            const found = await Promise.all(batch.map((c) => findSignal({ name: companyLabel(c), domain: c.domain }, profile, meter).catch(() => null)));
-            checked += batch.length;
-            for (const f of found) if (f && signals.length < slots) signals.push(f);
-            state = setStep(state, "signals", { status: "running", detail: `${checked} / ${pool.length} werkgevers nagegaan · ${signals.length} met gedateerd signaal` });
-            emit({ type: "steps", steps: state.steps });
-          }
-        }
-        const actions = await planActions({ profile, author: run.author, matches, signals }, meter).catch(() => [] as ActionView[]);
-        const kpi = { verifiedJobs: matches.length, proactive: signals.length, relationsChecked: 0, draftsSaved: 0 };
-        state = {
-          ...setStep(state, "signals", { status: "done", detail: `${signals.length} proactief · ${actions.length} actie(s)` }),
-          signals,
-          actions,
-          kpi,
         };
         await saveRun(runId, { status: "done", state });
         await addCost(runId, meter);
         await db()
           .update(schema.messages)
-          .set({ content: { kind: "assistant", intro: state.intro, followups: state.followups } })
+          .set({ content: { kind: "assistant", intro: result.intro, followups: result.followups } })
           .where(and(eq(schema.messages.runId, runId), eq(schema.messages.role, "assistant")));
+        emit({ type: "status", status: "done", state });
+        return "done";
+      }
+      case "signals": {
+        // Oude runs die nog in deze stap stonden: gewoon afronden.
+        await saveRun(runId, { status: "done", state });
         emit({ type: "status", status: "done", state });
         return "done";
       }
@@ -350,27 +317,3 @@ export async function companyNames(jobsIn: Job[]): Promise<Map<number, string>> 
   return out;
 }
 
-/** Matches van een run als MatchView (zelfde vorm als in de UI), zonder circulaire import van runs.ts. */
-async function matchViews(runId: number): Promise<MatchView[]> {
-  const rows = await db()
-    .select({ m: schema.matches, j: schema.jobs })
-    .from(schema.matches)
-    .innerJoin(schema.jobs, eq(schema.matches.jobId, schema.jobs.id))
-    .where(eq(schema.matches.runId, runId))
-    .orderBy(schema.matches.rank);
-  const names = await companyNames(rows.map((r) => r.j));
-  return rows.map(({ m, j }) => ({
-    jobId: j.id,
-    score: m.score,
-    reason: m.reason,
-    rank: m.rank,
-    title: j.title,
-    company: names.get(j.id) ?? "",
-    location: j.location ?? "",
-    url: j.url,
-    source: j.source,
-    firstSeenAt: j.firstSeenAt.toISOString(),
-    argument: m.argument ?? m.reason,
-    risk: m.risk ?? "",
-  }));
-}

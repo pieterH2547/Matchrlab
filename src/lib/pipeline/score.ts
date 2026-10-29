@@ -33,7 +33,8 @@ Vul ook in:
 Een search snippet is geen bewijs van een open vacature of van een vast contract: twijfel = "onbekend".
 
 Geef ook:
-- intro: één zin voor de recruiter over de vacatures die 6/10 of meer halen, niet over de rest.
+- intro: één zin voor de recruiter over de vacatures die 6/10 of meer halen, niet over de rest
+  (bv. "6 vacatures die echt passen, de beste twee in de chemie rond Willebroek").
 - followups: 2 tot 4 korte vervolgvragen als klikbare pillen, bv. "Zoek verder in Limburg", "Laat ploegenwerk weg".`;
 
 export type ScoredJob = {
