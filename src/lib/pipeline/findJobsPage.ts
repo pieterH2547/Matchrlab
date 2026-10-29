@@ -6,6 +6,7 @@
  *   d. Brave: site:<domein> vacature
  * Stoppen bij de eerste die werkt.
  */
+import { looksLikeIntermediary } from "@/lib/blocklist";
 import { fetchPage, isUsefulText, type LinkInfo } from "@/lib/fetch";
 import { detectAts, type AtsDetection } from "@/lib/ats";
 import { llmJson, type CostMeter } from "@/lib/llm";
@@ -39,6 +40,12 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
 
   if (home.status === 0 || (home.status >= 400 && home.status !== 403)) {
     return { kind: "none", companyName, reason: `homepage gaf status ${home.status}`, braveUsed: false };
+  }
+
+  // Tussenpersonen (recruitment, interim, consultancy, detachering) zijn geen werkgevers: overslaan.
+  const intermediary = looksLikeIntermediary(titleMatch?.[1] ?? "", home.text);
+  if (intermediary.yes) {
+    return { kind: "none", companyName, reason: `tussenpersoon (${intermediary.reason})`, braveUsed: false };
   }
 
   // a. ATS-detectie

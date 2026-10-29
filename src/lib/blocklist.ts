@@ -180,7 +180,25 @@ export const BLOCKED_DOMAINS = new Set<string>([
 ]);
 
 /** Fragmenten die op een jobboard, interimkantoor of aggregator wijzen. */
-const BLOCKED_FRAGMENTS = ["interim", "jobs", "vacature", "job-", "jobboard", "recruit", "uitzend", "talent"];
+const BLOCKED_FRAGMENTS = ["interim", "jobs", "vacature", "job-", "jobboard", "recruit", "uitzend", "talent", "staffing", "headhunt", "werving", "selectie", "consultancy", "consulting", "detacher", "outsourc", "payroll", "hr-", "hrservices"];
+
+/**
+ * Tussenpersonen herkennen aan hun eigen homepage: recruitment-, interim-, consultancy-,
+ * detacherings- en outsourcingbedrijven zijn geen werkgevers voor onze kandidaten.
+ * Sterke signalen in de titel volstaan; in de bodytekst vragen we er minstens twee.
+ */
+const INTERMEDIARY_STRONG = /\b(recruitment|recruiting|rekrutering|werving\s*(en|&)\s*selectie|headhunt\w*|executive search|interim(kantoor|bureau)?|uitzend\w*|staffing|detachering|outsourcing|hr[- ]?(consultancy|consulting|dienstverlen\w+|partner)|consultancy|consulting|payroll\w*|sourcing partner|selectiekantoor|talent acquisition)\b/i;
+
+export function looksLikeIntermediary(title: string, text: string): { yes: boolean; reason?: string } {
+  const t = title.toLowerCase();
+  const strongInTitle = t.match(INTERMEDIARY_STRONG);
+  if (strongInTitle) return { yes: true, reason: `titel: "${strongInTitle[0]}"` };
+  const body = text.slice(0, 4000);
+  const hits = new Set<string>();
+  for (const m of body.matchAll(new RegExp(INTERMEDIARY_STRONG.source, "gi"))) hits.add(m[0].toLowerCase());
+  if (hits.size >= 2) return { yes: true, reason: `homepage: ${[...hits].slice(0, 3).join(", ")}` };
+  return { yes: false };
+}
 
 /** Haal het registreerbare domein uit een URL of hostnaam (grof: laatste twee labels, met uitzondering van .co.uk e.d.). */
 export function registrableDomain(input: string): string | null {

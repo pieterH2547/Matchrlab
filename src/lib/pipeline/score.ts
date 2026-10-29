@@ -10,12 +10,15 @@ import { PreselectSchema, ScoringSchema, type Profile } from "./types";
 const PRESELECT_SYSTEM = `Je bent een recruiter. Je krijgt een kandidaatprofiel en een genummerde lijst vacatures
 (titel, bedrijf, plaats, snippet). Geef de id's terug van de vacatures die plausibel passen bij de functietitels,
 het ervaringsniveau en de regio. Wees ruim: twijfel = meenemen. Laat enkel weg wat duidelijk niet past
-(andere functiefamilie, andere regio zonder verhuis, expliciete uitsluiting in de titel).`;
+(andere functiefamilie, andere regio zonder verhuis, expliciete uitsluiting in de titel).
+Laat ook vacatures weg die door een tussenpersoon geplaatst zijn (interimkantoor, recruitmentbureau,
+consultancy- of detacheringsbedrijf dat "voor een klant" zoekt): we willen enkel rechtstreekse werkgevers.`;
 
 const SCORE_SYSTEM = `Je bent een senior recruiter bij een Vlaams recruitmentbureau. Je krijgt een kandidaatprofiel en een
 genummerde lijst vacatures. Geef per vacature een score van 0 tot 100 en één zin in het Nederlands waarom dit
 past of niet. Beoordeel op: functie-inhoud, vereiste ervaring vs. senioriteit, regio en straal, uitsluitingen,
-type werkgever. Vacatures die rechtstreeks van de bedrijfssite komen zijn vaak actueler; dat is al in een bonus verrekend,
+type werkgever. Een vacature van een tussenpersoon (interim, recruitmentbureau, consultancy "voor een klant") scoort
+maximaal 20 en de reden vermeldt dat. Vacatures die rechtstreeks van de bedrijfssite komen zijn vaak actueler; dat is al in een bonus verrekend,
 weeg dat niet opnieuw. Schrijf de reden informeel (je/jij), zonder "u", concreet en kort.
 
 Geef ook:
