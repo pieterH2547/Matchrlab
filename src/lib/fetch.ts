@@ -56,9 +56,9 @@ export function htmlToText(html: string, baseUrl: string): { text: string; links
   return { text, links, title };
 }
 
-async function timedFetch(url: string, init?: RequestInit): Promise<Response> {
+async function timedFetch(url: string, init?: RequestInit, timeoutMs: number = LIMITS.fetchTimeoutMs): Promise<Response> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), LIMITS.fetchTimeoutMs);
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     return await fetch(url, {
       ...init,
@@ -98,10 +98,10 @@ async function readBody(res: Response): Promise<string> {
   return new TextDecoder("utf-8", { fatal: false }).decode(buf);
 }
 
-/** Ruwe fetch zonder cache: voor API's en ATS-feeds. */
-export async function fetchRaw(url: string, init?: RequestInit): Promise<{ status: number; body: string; finalUrl: string }> {
+/** Ruwe fetch zonder cache: voor API's en ATS-feeds. Trage API's (AI-zoeken, Google Jobs) geven een ruimere timeout mee. */
+export async function fetchRaw(url: string, init?: RequestInit, timeoutMs?: number): Promise<{ status: number; body: string; finalUrl: string }> {
   try {
-    const res = await timedFetch(url, init);
+    const res = await timedFetch(url, init, timeoutMs);
     const body = await readBody(res);
     return { status: res.status, body, finalUrl: res.url || url };
   } catch {
@@ -109,8 +109,8 @@ export async function fetchRaw(url: string, init?: RequestInit): Promise<{ statu
   }
 }
 
-export async function fetchJson<T = unknown>(url: string, init?: RequestInit): Promise<T | null> {
-  const r = await fetchRaw(url, init);
+export async function fetchJson<T = unknown>(url: string, init?: RequestInit, timeoutMs?: number): Promise<T | null> {
+  const r = await fetchRaw(url, init, timeoutMs);
   if (r.status < 200 || r.status >= 300) return null;
   try {
     return JSON.parse(r.body) as T;
@@ -161,7 +161,7 @@ export async function fetchViaFirecrawl(url: string): Promise<string | null> {
     body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
   };
   for (const endpoint of ["https://api.firecrawl.dev/v2/scrape", "https://api.firecrawl.dev/v1/scrape"]) {
-    const data = await fetchJson<{ success?: boolean; data?: { markdown?: string } }>(endpoint, init);
+    const data = await fetchJson<{ success?: boolean; data?: { markdown?: string } }>(endpoint, init, 25_000);
     const md = data?.data?.markdown;
     if (md && md.length >= LIMITS.minUsefulChars) return md;
     if (data) return null;

@@ -81,7 +81,7 @@ export async function webSearch(query: string, opts: SearchOptions = {}): Promis
 }
 
 /** Test één provider rechtstreeks, zonder keten of afkoeling. Voor de testknop in Instellingen. */
-export async function testProvider(p: SearchProvider, query: string): Promise<{ ok: boolean; count: number; ms: number; sample: string[] }> {
+export async function testProvider(p: SearchProvider, query: string): Promise<{ ok: boolean; count: number; ms: number; sample: string[]; error?: string }> {
   const t = Date.now();
   let r: SearchResult[] | null = null;
   try {
@@ -90,7 +90,13 @@ export async function testProvider(p: SearchProvider, query: string): Promise<{ 
     r = null;
   }
   if (r !== null) cooling.delete(p);
-  return { ok: r !== null, count: r?.length ?? 0, ms: Date.now() - t, sample: (r ?? []).slice(0, 3).map((x) => x.url) };
+  return {
+    ok: r !== null && r.length > 0,
+    count: r?.length ?? 0,
+    ms: Date.now() - t,
+    sample: (r ?? []).slice(0, 3).map((x) => x.url),
+    error: r === null ? "geen geldig antwoord (key, tegoed of timeout); zie Vercel-logs voor de HTTP-status" : r.length === 0 ? "verbinding werkt, maar 0 resultaten" : undefined,
+  };
 }
 
 export const SEARCH_PROVIDERS = ORDER;
@@ -114,10 +120,10 @@ function sinceDate(f: SearchOptions["freshness"]): string | undefined {
 }
 
 /** POST met JSON; geeft null bij elke niet-2xx (auth, limiet, storing) zodat de keten doorschakelt. */
-async function postJson(url: string, body: unknown, headers: Record<string, string>): Promise<unknown | null> {
-  const r = await fetchRaw(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", ...headers }, body: JSON.stringify(body) });
+async function postJson(url: string, body: unknown, headers: Record<string, string>, timeoutMs = 15_000): Promise<unknown | null> {
+  const r = await fetchRaw(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", ...headers }, body: JSON.stringify(body) }, timeoutMs);
   if (r.status < 200 || r.status >= 300) {
-    console.warn(`[search] ${new URL(url).hostname} gaf HTTP ${r.status}`);
+    console.warn(`[search] ${new URL(url).hostname} gaf ${r.status === 0 ? "geen antwoord (timeout of netwerk)" : `HTTP ${r.status}`}`);
     return null;
   }
   try {
@@ -228,6 +234,7 @@ async function openaiWebSearch(key: string, query: string, opts: SearchOptions):
       input: `Zoek op het web naar: ${query}${freshness}. Antwoord enkel met de lijst van gevonden pagina's.`,
     },
     { authorization: `Bearer ${key}` },
+    60_000,
   )) as { output?: { type?: string; action?: { sources?: { url?: string; title?: string }[] }; content?: { annotations?: { type?: string; url?: string; title?: string }[] }[] }[] } | null;
   if (!data) return null;
   const seen = new Set<string>();

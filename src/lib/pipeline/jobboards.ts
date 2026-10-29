@@ -166,7 +166,7 @@ export async function searchGoogleJobs(profile: Profile): Promise<NormalizedJob[
     profile.job_titles.slice(0, 2).map(async (title) => {
       // Regio in de zoekvraag zelf: SerpApi kent niet elke gemeente als 'location'.
       const params = new URLSearchParams({ engine: "google_jobs", q: `${title} ${profile.region}`.trim(), hl: "nl", gl: "be", api_key: key });
-      const r = await fetchRaw(`https://serpapi.com/search.json?${params}`);
+      const r = await fetchRaw(`https://serpapi.com/search.json?${params}`, undefined, 30_000);
       let data: { jobs_results?: GoogleJob[]; error?: string } = {};
       try {
         data = JSON.parse(r.body);
@@ -175,7 +175,7 @@ export async function searchGoogleJobs(profile: Profile): Promise<NormalizedJob[
       }
       if (r.status !== 200 || data.error) {
         // "geen resultaten" is geen fout; al de rest wel (key, tegoed op, …).
-        if (!/hasn't returned any results|no results/i.test(data.error ?? "")) googleJobsLastError = redactSecrets(data.error ?? `HTTP ${r.status}`);
+        if (!/hasn't returned any results|no results/i.test(data.error ?? "")) googleJobsLastError = redactSecrets(data.error ?? (r.status === 0 ? "geen antwoord binnen 30 s" : `HTTP ${r.status}`));
         return;
       }
       for (const j of data.jobs_results ?? []) {
