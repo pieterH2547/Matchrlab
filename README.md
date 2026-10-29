@@ -34,13 +34,13 @@ werkgever), elk met een score op 10 (kerntaken 3, vaardigheden 3, senioriteit 2,
 en één risico, en max 3 open vragen aan de kandidaat. Enkel rechtstreekse werkgevers met vast contract binnen de straal;
 interim, freelance, tijdelijk, bureaus, harde blokkades en alles onder 6/10 vallen weg. Geen outreach, geen drafts.
 
-## AI-model: Claude of OpenAI
+## AI-model: OpenAI (standaard), Claude optioneel
 
-Alle AI-aanroepen lopen via `llmJson` in `src/lib/llm.ts`. In Instellingen kies je `AI_PROVIDER`:
-`auto` (OpenAI eerst, Claude als reserve; is het OpenAI-tegoed op of de key ongeldig, dan 15 minuten Claude),
-`anthropic` of `openai`. Overal lichte modellen: gpt-5-mini voor alles (aanpasbaar via `OPENAI_MODEL_CHEAP` en
-`OPENAI_MODEL_SCORING`), Claude Haiku als reserve, ook voor de scoring. Een ChatGPT-abonnement bevat geen API-tegoed: de key komt van
-platform.openai.com. Instellingen heeft een testknop voor beide.
+Alle AI-aanroepen lopen via `llmJson` in `src/lib/llm.ts`. `AI_PROVIDER` staat standaard op `openai`; `auto` geeft
+OpenAI met Claude als reserve, `anthropic` enkel Claude. Er staat geen modelnaam vast in de code: met de key vraagt
+Matchr `/v1/models` op (1 uur cache) en kiest het nieuwste lichte model (mini > luna > nano). In Instellingen kies je
+eventueel een ander uit de lijst. Parameters die een model niet ondersteunt (reasoning_effort, json_schema) laat
+Matchr bij een tweede poging weg. Een ChatGPT-abonnement bevat geen API-tegoed: de key komt van platform.openai.com.
 
 ## Toegang
 
@@ -64,9 +64,9 @@ en neemt de volgende over.
 | Tavily | `TAVILY_API_KEY` | 1.000 credits/maand | |
 | Exa | `EXA_API_KEY` | ±$10/maand | |
 | Brave | `BRAVE_SEARCH_API_KEY` | $5 tegoed/maand, kaart nodig | optioneel |
-| Claude web search | `ANTHROPIC_API_KEY` | betalend, ±$0,01/zoekopdracht | vangnet |
+| Claude web search | `ANTHROPIC_API_KEY` | betalend, ±$0,01/zoekopdracht | enkel als `SEARCH_PROVIDER=anthropic` |
 
-`SEARCH_PROVIDER` = auto (standaard) volgt deze volgorde; een vaste keuze zet die provider vooraan.
+`SEARCH_PROVIDER` = auto (standaard) volgt deze volgorde zonder Claude; een vaste keuze zet die provider vooraan.
 Google Custom Search is gesloten voor nieuwe klanten (sinds 20 januari 2026, stopt 1 januari 2027); DuckDuckGo blokkeert Vercel.
 
 ### Vacaturebronnen en pagina's lezen

@@ -24,7 +24,7 @@ const SEARCH_CHAIN: Tool[] = [
   { name: "Tavily", key: "TAVILY_API_KEY", test: "tavily", note: "2e", domain: "tavily.com" },
   { name: "Exa", key: "EXA_API_KEY", test: "exa", note: "3e", domain: "exa.ai" },
   { name: "Brave", key: "BRAVE_SEARCH_API_KEY", test: "brave", note: "4e", domain: "brave.com" },
-  { name: "Claude web search", key: "ANTHROPIC_API_KEY", test: "anthropic", note: "vangnet, betalend", domain: "claude.ai" },
+  { name: "Claude web search", key: "ANTHROPIC_API_KEY", test: "anthropic", note: "enkel als gekozen, betalend", domain: "claude.ai" },
 ];
 
 const STEPS: Step[] = [
@@ -33,7 +33,7 @@ const STEPS: Step[] = [
     title: "Profiel opstellen",
     short: "Cv lezen",
     what: "Leest het cv (pdf, docx) en je opdracht. Maakt functietitels, regio en straal, uitsluitingen, de kandidaat in 3 regels en open vragen.",
-    tools: [{ name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai", note: "1e keuze" }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude", note: "reserve" }],
+    tools: [{ name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai", note: "standaard" }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude", note: "optioneel" }],
   },
   {
     n: 2,
@@ -82,7 +82,7 @@ const STEPS: Step[] = [
     what: "Een grove voorselectie, dan een score op 10 met het lichte model: kerntaken 3, vaardigheden 3, senioriteit 2, sector 1, mobiliteit 1, met één argument en één risico.",
     tools: [
       { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" },
-      { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", note: "scoring" }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", note: "reserve" },
+      { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", note: "scoring" }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", note: "optioneel" },
     ],
     rules: ["Minstens 6/10", "Vast contract, eindwerkgever bij naam", "Binnen de straal", "Max 2 per werkgever, max 10 in totaal"],
   },

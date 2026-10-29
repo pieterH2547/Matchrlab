@@ -6,7 +6,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { z as zod } from "zod";
-import { MODELS, OPENAI_DEFAULT_MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
+import { resolveOpenAIModel } from "@/lib/openaiModels";
+import { MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
 import { getSetting } from "@/lib/settings";
 
 let _client: { key: string; client: Anthropic } | null = null;
@@ -48,7 +49,8 @@ export type LlmOptions<T extends z.ZodTypeAny> = {
  * terugstuurt of de vraag weigert; de aanroeper beslist wat daarmee gebeurt.
  */
 export async function llmJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
-  const choice = (await getSetting("AI_PROVIDER")) ?? "auto";
+  // Standaard enkel OpenAI; Claude enkel als je dat in Instellingen kiest (anthropic of auto).
+  const choice = (await getSetting("AI_PROVIDER")) ?? "openai";
   const hasClaude = Boolean(await getSetting("ANTHROPIC_API_KEY"));
   const hasOpenAI = Boolean(await getSetting("OPENAI_API_KEY"));
   if (choice === "openai") return openaiJson(opts);
@@ -104,10 +106,7 @@ type OpenAIChat = {
 async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
   const key = await getSetting("OPENAI_API_KEY");
   if (!key) throw new Error("OpenAI API-key ontbreekt. Vul ze in via Instellingen.");
-  const model =
-    opts.model === "scoring"
-      ? (await getSetting("OPENAI_MODEL_SCORING")) ?? OPENAI_DEFAULT_MODELS.scoring
-      : (await getSetting("OPENAI_MODEL_CHEAP")) ?? OPENAI_DEFAULT_MODELS.cheap;
+  const model = await resolveOpenAIModel(opts.model === "scoring" ? "scoring" : "cheap");
   const jsonSchema = zod.toJSONSchema(opts.schema as unknown as zod.ZodType) as Record<string, unknown>;
   delete jsonSchema.$schema;
   const reasoning = /^(gpt-5|o\d)/.test(model);
@@ -116,15 +115,19 @@ async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<
     { role: "user", content: opts.user },
   ];
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Wat een model niet ondersteunt, laten we bij de volgende poging weg (oudere/nieuwere modellen verschillen).
+  let useReasoning = reasoning;
+  let useSchema = true;
+  for (let attempt = 0; attempt < 4; attempt++) {
     const body: Record<string, unknown> = {
       model,
       messages,
-      response_format: { type: "json_schema", json_schema: { name: "matchr_output", schema: jsonSchema, strict: false } },
+      response_format: useSchema ? { type: "json_schema", json_schema: { name: "matchr_output", schema: jsonSchema, strict: false } } : { type: "json_object" },
       // Redeneermodellen gebruiken een deel van het budget om te denken; ruimer zetten.
-      max_completion_tokens: (opts.maxTokens ?? 4096) * (reasoning ? 4 : 1),
+      max_completion_tokens: (opts.maxTokens ?? 4096) * (useReasoning ? 4 : 1),
     };
-    if (reasoning) body.reasoning_effort = opts.effort === "medium" ? "medium" : "low";
+    if (useReasoning) body.reasoning_effort = opts.effort === "medium" ? "medium" : "low";
+    if (!useSchema) messages[0] = { ...messages[0], content: `${opts.system}\n\nAntwoord uitsluitend met JSON volgens dit schema:\n${JSON.stringify(jsonSchema).slice(0, 6000)}` };
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
@@ -132,7 +135,16 @@ async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<
     });
     const data = (await res.json().catch(() => ({}))) as OpenAIChat;
     if (!res.ok) {
-      const err = new Error(`OpenAI gaf HTTP ${res.status}: ${data.error?.message ?? "onbekende fout"}`) as Error & { status?: number };
+      const m = (data.error?.message ?? "").toLowerCase();
+      if (res.status === 400 && useReasoning && /reasoning/.test(m)) {
+        useReasoning = false;
+        continue;
+      }
+      if (res.status === 400 && useSchema && /(response_format|json_schema)/.test(m)) {
+        useSchema = false;
+        continue;
+      }
+      const err = new Error(`OpenAI gaf HTTP ${res.status} (model ${model}): ${data.error?.message ?? "onbekende fout"}`) as Error & { status?: number };
       err.status = res.status;
       throw err;
     }

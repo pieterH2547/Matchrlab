@@ -29,12 +29,12 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 export type SettingKey = SecretKey | ConfigKey;
 
 export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url?: string; required?: boolean; options?: string[] }> = {
-  ANTHROPIC_API_KEY: { label: "Anthropic API-key", help: "Claude Haiku, reserve als OpenAI niet werkt. Eén van beide AI-keys is nodig.", url: "https://console.anthropic.com/settings/keys", },
-  AI_PROVIDER: { label: "AI-model", help: "auto = OpenAI eerst, Claude als reserve. Is het OpenAI-tegoed op of de key ongeldig, dan schakelt auto 15 minuten naar Claude.", options: ["auto", "anthropic", "openai"] },
+  ANTHROPIC_API_KEY: { label: "Anthropic API-key (optioneel)", help: "Enkel nodig als je AI-aanbieder op auto of anthropic zet.", url: "https://console.anthropic.com/settings/keys", },
+  AI_PROVIDER: { label: "AI-aanbieder", help: "openai (standaard) = enkel OpenAI. auto = OpenAI met Claude als reserve. anthropic = enkel Claude.", options: ["openai", "auto", "anthropic"] },
   OPENAI_API_KEY: { label: "OpenAI API-key", help: "Aan te maken op platform.openai.com door een beheerder van de RecruitrLAB-organisatie. Een ChatGPT-abonnement bevat geen API-tegoed.", url: "https://platform.openai.com/api-keys" },
-  OPENAI_MODEL_CHEAP: { label: "OpenAI-model voor het grove werk", help: "Cv lezen, zoekopdrachten, vacatures uitlezen, voorselectie. Standaard gpt-5-mini." },
-  OPENAI_MODEL_SCORING: { label: "OpenAI-model voor de scoring", help: "De eindscore op 10 met argument en risico. Standaard gpt-5-mini (licht en goedkoop); zet gpt-5 enkel als de scores te grof zijn." },
-  SEARCH_PROVIDER: { label: "Zoekmachine vooraan", help: "auto = Linkup, dan Tavily, dan Exa, dan Brave, dan Claude web search (±€0,01 per zoekopdracht). Is er één op of kapot, dan neemt de volgende over.", options: ["auto", "linkup", "tavily", "exa", "brave", "anthropic"] },
+  OPENAI_MODEL_CHEAP: { label: "OpenAI-model", help: "Leeg = Matchr kiest zelf het nieuwste lichte model (mini) dat je account heeft. Kies enkel een ander als je weet waarom." },
+  OPENAI_MODEL_SCORING: { label: "OpenAI-model voor de scoring", help: "Leeg = hetzelfde als hierboven. Enkel invullen als de scores te grof zijn." },
+  SEARCH_PROVIDER: { label: "Zoekmachine vooraan", help: "auto = Linkup, dan Tavily, dan Exa, dan Brave. Is er één op of kapot, dan neemt de volgende over. Claude web search (betalend) enkel als je anthropic kiest.", options: ["auto", "linkup", "tavily", "exa", "brave", "anthropic"] },
   LINKUP_API_KEY: { label: "Linkup API-key", help: "Gratis ±4.000 zoekopdrachten per maand met een professioneel e-mailadres. Eerste keuze.", url: "https://app.linkup.so" },
   TAVILY_API_KEY: { label: "Tavily API-key", help: "Gratis 1.000 credits per maand, geen kaart nodig.", url: "https://app.tavily.com" },
   EXA_API_KEY: { label: "Exa API-key", help: "Gratis ±$10 per maand, geen kaart nodig.", url: "https://dashboard.exa.ai/api-keys" },

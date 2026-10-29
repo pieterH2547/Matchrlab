@@ -30,7 +30,9 @@ const KEY: Record<SearchProvider, "LINKUP_API_KEY" | "TAVILY_API_KEY" | "EXA_API
 /** Providers met een key, in de volgorde waarin we ze proberen. */
 export async function providerChain(): Promise<SearchProvider[]> {
   const wanted = (await getSetting("SEARCH_PROVIDER")) ?? "auto";
-  const order = ORDER.includes(wanted as SearchProvider) ? [wanted as SearchProvider, ...ORDER.filter((p) => p !== wanted)] : ORDER;
+  // Claude web search enkel als je hem uitdrukkelijk vooraan zet; standaard enkel de gratis zoekmachines (+ Brave).
+  const base = wanted === "anthropic" ? ORDER : ORDER.filter((p) => p !== "anthropic");
+  const order = base.includes(wanted as SearchProvider) ? [wanted as SearchProvider, ...base.filter((p) => p !== wanted)] : base;
   const out: SearchProvider[] = [];
   for (const p of order) if (await getSetting(KEY[p])) out.push(p);
   return out;

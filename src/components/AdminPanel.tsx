@@ -27,6 +27,7 @@ const GROUPS: { title: string; keys: string[] }[] = [
 export function AdminPanel({ me }: { me: string }) {
   const [settings, setSettings] = useState<Setting[] | null>(null);
   const [provider, setProvider] = useState<string>("");
+  const [ai, setAi] = useState<{ provider: string; ids: string[]; auto: string | null; effective: { cheap: string; scoring: string } } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ key: string; text: string; ok: boolean } | null>(null);
@@ -37,6 +38,8 @@ export function AdminPanel({ me }: { me: string }) {
     const data = (await res.json()) as { settings: Setting[]; provider: string };
     setSettings(data.settings);
     setProvider(data.provider);
+    const m = await fetch("/api/admin/openai-models", { cache: "no-store" });
+    if (m.ok) setAi(await m.json());
   }, []);
 
   useEffect(() => {
@@ -46,6 +49,8 @@ export function AdminPanel({ me }: { me: string }) {
 
   async function save(key: string) {
     const value = drafts[key] ?? "";
+    // "Automatisch" voor een OpenAI-model = de instelling wissen.
+    if (key.startsWith("OPENAI_MODEL_") && value === "__auto__") return remove(key);
     setBusy(key);
     setMsg(null);
     const res = await fetch("/api/admin/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, value }) });
@@ -78,6 +83,23 @@ export function AdminPanel({ me }: { me: string }) {
 
   return (
     <div className="space-y-10">
+      {ai && (
+        <div className="rounded-lg border border-line bg-paper-soft px-4 py-3 text-sm">
+          AI: <span className="font-medium">{ai.provider === "anthropic" ? "Claude" : ai.provider === "auto" ? "OpenAI, Claude als reserve" : "OpenAI"}</span>
+          {ai.provider !== "anthropic" && (
+            <span className="text-ink-soft">
+              {" "}
+              · model <span className="mono">{ai.effective.cheap}</span>
+              {ai.effective.scoring !== ai.effective.cheap && (
+                <>
+                  , scoring <span className="mono">{ai.effective.scoring}</span>
+                </>
+              )}
+              {ai.ids.length === 0 && " · nog geen OpenAI-key, of de key kon geen modellen ophalen"}
+            </span>
+          )}
+        </div>
+      )}
       <div className="rounded-lg border border-line bg-paper-soft px-4 py-3 text-sm">
         Zoekmachine vooraan: <span className="font-medium">{provider}</span>
         {provider === "anthropic" && <span className="text-ink-soft"> — enkel Claude web search (±€0,01 per zoekopdracht). Vul Linkup, Tavily of Exa in om gratis te zoeken.</span>}
@@ -111,7 +133,20 @@ export function AdminPanel({ me }: { me: string }) {
                     )}
                   </p>
                   <div className="flex flex-wrap gap-2 items-center">
-                    {s.options ? (
+                    {s.key.startsWith("OPENAI_MODEL_") && ai && ai.ids.length > 0 ? (
+                      <select
+                        className="border border-line rounded-md px-3 py-2 text-sm bg-white mono"
+                        value={draft || s.value || "__auto__"}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))}
+                      >
+                        <option value="__auto__">automatisch{ai.auto ? ` (${ai.auto})` : ""}</option>
+                        {ai.ids.map((id) => (
+                          <option key={id} value={id}>
+                            {id}
+                          </option>
+                        ))}
+                      </select>
+                    ) : s.options ? (
                       <select
                         className="border border-line rounded-md px-3 py-2 text-sm bg-white"
                         value={draft || s.value || s.options[0]}
@@ -136,7 +171,7 @@ export function AdminPanel({ me }: { me: string }) {
                     )}
                     <button
                       type="button"
-                      disabled={busy === key || (!draft && !s.options)}
+                      disabled={busy === key || (!draft && !s.options && !(s.key.startsWith("OPENAI_MODEL_") && ai && ai.ids.length > 0))}
                       onClick={() => save(key)}
                       className="text-sm rounded-md px-3 py-2 bg-accent text-white disabled:opacity-40"
                     >
