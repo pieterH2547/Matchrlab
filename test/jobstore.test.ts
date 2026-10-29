@@ -18,6 +18,11 @@ const profile: Profile = {
   open_questions: [],
   consent: "onbekend",
   hard_requirements: [],
+  related_titles: [],
+  company_types: [],
+  nearby_municipalities: [],
+  region_lat: 0,
+  region_lng: 0,
 };
 
 describe("normalizeUrl", () => {
@@ -40,7 +45,7 @@ describe("dedupeJobs", () => {
 });
 
 describe("prefilterJobs", () => {
-  it("regio is strikt voor jobboards: buiten de straal of onherkenbare plaats valt weg", () => {
+  it("regio voor jobboards: buiten de straal of zonder bruikbare plaats valt weg; onbekende gemeente blijft voor de AI", () => {
     const jobsIn = [
       { title: "Procesoperator", location: "Willebroek", source: "vdab" },
       { title: "Procesoperator", location: "Hasselt", source: "vdab" },
@@ -48,7 +53,7 @@ describe("prefilterJobs", () => {
       { title: "Procesoperator", location: "Ergens-Onbekend", source: "vdab" },
       { title: "Procesoperator", location: "België", source: "vdab" },
     ];
-    expect(prefilterJobs(jobsIn, profile).map((j) => j.location)).toEqual(["Willebroek"]);
+    expect(prefilterJobs(jobsIn, profile).map((j) => j.location)).toEqual(["Willebroek", "Ergens-Onbekend"]);
   });
 
   it("bedrijfssites: onbekende plaats blijft, buiten de straal valt weg, tussenpersonen vallen weg", () => {

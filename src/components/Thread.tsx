@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { RunView, Profile, StepState, MatchView } from "@/lib/pipeline/types";
+import type { RunView, Profile, StepState, MatchView, EmployerView, RunStats } from "@/lib/pipeline/types";
 
 export function Thread({
   runs,
@@ -70,10 +70,21 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
 
       {run.matches.length > 0 && (
-        <Section title={`Passende vacatures (${run.matches.length})`}>
+        <Section title={`A · Top ${run.matches.length} passende vacatures`}>
           <div className="space-y-2">
             {run.matches.map((m) => (
               <ResultCard key={m.jobId} m={m} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {done && (run.state.employers?.length ?? 0) > 0 && (
+        <Section title={`B · ${run.state.employers!.length} interessante werkgevers`}>
+          <p className="text-xs text-ink-faint mb-2">Ook zonder passende vacature. Enkel wat Matchr zelf zag; een bedrijf zonder vacature is een potentiële werkgever, geen bewezen aanwervingskans.</p>
+          <div className="space-y-2">
+            {run.state.employers!.map((e) => (
+              <EmployerCard key={e.domain} e={e} />
             ))}
           </div>
         </Section>
@@ -88,6 +99,8 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
           </ol>
         </Section>
       )}
+
+      {done && run.state.stats && <RunSummary stats={run.state.stats} cost={run.costEstimateEur} />}
 
       {done && run.state.followups && run.state.followups.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -108,6 +121,211 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-2">{title}</h3>
       {children}
     </section>
+  );
+}
+
+function EmployerCard({ e }: { e: EmployerView }) {
+  const badge = e.hasMatchingJob
+    ? { text: "Passende vacature", cls: "bg-green-50 text-green-800" }
+    : e.openJobs > 0
+      ? { text: `Bewezen: ${e.openJobs} open vacature${e.openJobs === 1 ? "" : "s"}, andere functies`, cls: "bg-accent-soft text-accent" }
+      : { text: "Potentiële werkgever · geen vacature gevonden", cls: "bg-paper-soft text-ink-soft" };
+  return (
+    <div className="border border-line rounded-xl p-4">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-medium">{e.name}</span>
+        <span className="text-sm text-ink-soft">{[e.municipality, e.distanceKm !== null ? `${e.distanceKm} km` : null].filter(Boolean).join(" · ")}</span>
+      </div>
+      {e.activity && <div className="text-sm text-ink-soft">{e.activity}</div>}
+      {e.why && <div className="text-sm mt-1">{e.why}</div>}
+      {e.signal && <div className="text-xs mt-1 text-ink-soft">{e.signal}</div>}
+      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+        <span className={`rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.text}</span>
+        <a href={e.website} target="_blank" rel="noopener noreferrer" className="rounded-full px-2 py-0.5 bg-paper-soft text-accent hover:underline">
+          Website →
+        </a>
+        {e.careersUrl && (
+          <a href={e.careersUrl} target="_blank" rel="noopener noreferrer" className="rounded-full px-2 py-0.5 bg-paper-soft text-accent hover:underline">
+            Jobpagina →
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const CALL_LABEL: Record<string, string> = {
+  openai: "OpenAI",
+  claude: "Claude",
+  serper: "Google (Serper)",
+  serper_maps: "Google Maps",
+  google_jobs: "Google Jobs",
+  openai_websearch: "OpenAI Web Search",
+  jooble: "Jooble",
+  adzuna: "Adzuna",
+  linkup: "Linkup",
+  tavily: "Tavily",
+  exa: "Exa",
+  brave: "Brave",
+  jina: "Jina",
+  firecrawl: "Firecrawl",
+};
+
+const FUNNEL_SOURCE: Record<string, string> = {
+  google_jobs: "Google Jobs",
+  jooble: "Jooble",
+  adzuna: "Adzuna",
+  google_zoek: "Google-zoekopdrachten",
+  openai_web: "OpenAI Web Search",
+};
+
+const REASON_TEXT: Record<string, string> = {
+  onder_drempel: "onder de matchdrempel",
+  contract_tijdelijk: "tijdelijk, interim of freelance",
+  tussenpersoon: "tussenpersoon",
+  buiten_straal: "buiten de straal",
+  harde_eis: "harde eis niet gehaald",
+};
+
+function Row({ k, v }: { k: string; v: string | number | undefined }) {
+  if (v === undefined) return null;
+  return (
+    <div className="flex justify-between gap-4">
+      <span className="text-ink-soft">{k}</span>
+      <span className="mono">{v}</span>
+    </div>
+  );
+}
+
+function RunSummary({ stats, cost }: { stats: RunStats; cost: number }) {
+  const calls = Object.entries(stats.apiCalls ?? {}).sort((a, b) => b[1] - a[1]);
+  const secs = Math.round((stats.durationMs ?? 0) / 1000);
+  const f = stats.funnel;
+  const pf = f?.prefilter;
+  const sc = f?.scoring;
+  return (
+    <details className="border border-line rounded-xl px-4 py-3 text-sm">
+      <summary className="cursor-pointer text-ink-soft">
+        Run-overzicht en diagnose{stats.failures?.length ? <span className="ml-2 text-warn">· {stats.failures.length} bron(nen) met problemen</span> : null}
+      </summary>
+
+      {f?.sources && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">Per bron</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-ink-faint text-left">
+                  <th className="font-normal py-1 pr-3">Bron</th>
+                  <th className="font-normal py-1 pr-3 text-right">Zoekopdrachten</th>
+                  <th className="font-normal py-1 pr-3 text-right">Ruw</th>
+                  <th className="font-normal py-1 pr-3 text-right">Bruikbaar</th>
+                  <th className="font-normal py-1">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(f.sources).map(([k, s]) => (
+                  <tr key={k} className="border-t border-line">
+                    <td className="py-1 pr-3">{FUNNEL_SOURCE[k] ?? k}</td>
+                    <td className="py-1 pr-3 text-right mono">{s.queries}</td>
+                    <td className="py-1 pr-3 text-right mono">{s.raw}</td>
+                    <td className="py-1 pr-3 text-right mono">{s.kept}</td>
+                    <td className={`py-1 ${s.error ? "text-warn" : "text-ink-soft"}`}>{s.error ?? s.skipped ?? "ok"}</td>
+                  </tr>
+                ))}
+                {f.siteJobs !== undefined && (
+                  <tr className="border-t border-line">
+                    <td className="py-1 pr-3">Bedrijfssites en ATS-feeds</td>
+                    <td className="py-1 pr-3 text-right mono">{stats.employersExamined ?? 0} sites</td>
+                    <td className="py-1 pr-3 text-right mono">—</td>
+                    <td className="py-1 pr-3 text-right mono">{f.siteJobs}</td>
+                    <td className="py-1 text-ink-soft">ok</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {f && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">Per fase</div>
+          <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+            <Row k="Gevonden (jobboards, zoekmachines, AI)" v={f.found} />
+            <Row k="Gevonden op bedrijfssites" v={f.siteJobs} />
+            <Row k="Dubbels verwijderd" v={f.duplicates} />
+            <Row k="Weg: locatie" v={pf?.regio} />
+            <Row k="Weg: tussenpersoon (bevestigd)" v={pf?.tussenpersoon} />
+            <Row k="Weg: uitsluiting in de titel" v={pf?.uitsluiting} />
+            <Row k="Uniek en bruikbaar" v={f.unique} />
+            <Row k="Na voorselectie" v={f.preselect ? `${f.preselect.output}${f.preselect.filled ? ` (${f.preselect.filled} aangevuld)` : ""}` : undefined} />
+            <Row k="Gecontroleerd op de pagina" v={f.checked} />
+            <Row k="Waarvan actief bevestigd" v={f.verifiedActive} />
+            <Row k="Waarvan gesloten" v={f.closed} />
+            <Row k="Naar AI-scoring" v={f.toScoring} />
+            <Row k="Effectief gescoord" v={sc ? `${sc.scored}${sc.missing ? ` (${sc.missing} zonder score)` : ""}` : undefined} />
+            <Row k="Score ≥ drempel" v={f.aboveThreshold} />
+            {f.reasons &&
+              Object.entries(f.reasons)
+                .filter(([, n]) => n > 0)
+                .map(([k, n]) => <Row key={k} k={`Afgewezen: ${REASON_TEXT[k] ?? k}`} v={n} />)}
+            <Row k="Getoond" v={f.shown} />
+            <Row k="Waarvan contract te verifiëren" v={f.toVerify?.contract} />
+            <Row k="Waarvan werkgever te verifiëren" v={f.toVerify?.werkgever} />
+          </div>
+        </div>
+      )}
+
+      {f?.ai && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">OpenAI Web Search</div>
+          {f.ai.skipped ? (
+            <div className="text-ink-soft">Niet gebruikt: {f.ai.skipped}.</div>
+          ) : (
+            <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+              <Row k="Model" v={f.ai.model ?? undefined} />
+              <Row k="Zoekrondes" v={f.ai.rounds} />
+              <Row k="Webzoekopdrachten" v={f.ai.searches} />
+              <Row k="Vacatures opgeleverd" v={f.ai.kept} />
+              <Row k="Uniek na samenvoegen" v={f.ai.unique} />
+              <Row k="Geverifieerd actief" v={f.ai.verifiedActive} />
+              <Row k="Passend (≥ drempel)" v={f.ai.aboveThreshold} />
+              <Row k="Duur" v={`${Math.round(f.ai.durationMs / 1000)} s`} />
+              <Row k="Geschatte kost" v={`€ ${f.ai.costEur.toFixed(3)}`} />
+              {f.ai.error ? <div className="text-warn sm:col-span-2">Fout: {f.ai.error}</div> : null}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+        {!f && <Row k="Ruwe vacatures gevonden" v={stats.rawJobs} />}
+        {!f && <Row k="Unieke vacatures" v={stats.uniqueJobs} />}
+        <Row k="Werkgevers onderzocht" v={stats.employersExamined} />
+        <Row k="Uitvoeringstijd" v={secs ? `${Math.floor(secs / 60)} min ${secs % 60} s` : undefined} />
+        <Row k="Geschatte AI-kost (totaal)" v={cost ? `€ ${cost.toFixed(3)}` : "€ 0"} />
+      </div>
+      {calls.length > 0 && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">API-aanroepen per bron</div>
+          <div className="flex flex-wrap gap-2">
+            {calls.map(([k, n]) => (
+              <span key={k} className="mono text-xs rounded-full px-2 py-0.5 bg-paper-soft">
+                {CALL_LABEL[k] ?? k} {n}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {stats.failures && stats.failures.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-warn">
+          {stats.failures.map((x) => (
+            <li key={x}>— {x}</li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 
@@ -253,6 +471,10 @@ function sourceLabel(source: MatchView["source"]): { text: string; cls: string }
       return { text: "Jooble", cls: "bg-paper-soft text-ink-soft" };
     case "google_jobs":
       return { text: "Google Jobs", cls: "bg-paper-soft text-ink-soft" };
+    case "openai_web":
+      return { text: "OpenAI Web Search", cls: "bg-paper-soft text-ink-soft" };
+    case "web":
+      return { text: "Google-zoekopdracht", cls: "bg-paper-soft text-ink-soft" };
     default:
       return { text: "Web", cls: "bg-paper-soft text-ink-soft" };
   }
@@ -263,6 +485,27 @@ function age(iso: string): string {
   if (days <= 0) return "vandaag gezien";
   if (days === 1) return "gisteren gezien";
   return `${days} dagen geleden gezien`;
+}
+
+function VerificationBadge({ v }: { v: string }) {
+  const [main, flagPart] = (v || "niet geverifieerd").split(" | ");
+  const [status, ...rest] = main.split(":");
+  const reason = rest.join(":").trim();
+  const active = status.trim() === "actief";
+  const flags = (flagPart ?? "").split(",").map((f) => f.trim()).filter(Boolean);
+  return (
+    <>
+      <span title={reason || undefined} className={`rounded-full px-2 py-0.5 ${active ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
+        {active ? "Gecontroleerd: open" : "Niet geverifieerd"}
+        {reason ? <span className="text-ink-faint"> · {reason}</span> : null}
+      </span>
+      {flags.map((f) => (
+        <span key={f} className="rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">
+          {f.charAt(0).toUpperCase() + f.slice(1)}
+        </span>
+      ))}
+    </>
+  );
 }
 
 function ResultCard({ m }: { m: MatchView }) {
@@ -287,6 +530,7 @@ function ResultCard({ m }: { m: MatchView }) {
         )}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           <span className={`rounded-full px-2 py-0.5 ${src.cls}`}>{src.text}</span>
+          <VerificationBadge v={m.verification} />
           <span className="rounded-full px-2 py-0.5 bg-paper-soft text-ink-soft">peildatum: {age(m.firstSeenAt)}</span>
           <a href={m.url} target="_blank" rel="noopener noreferrer" className="rounded-full px-2 py-0.5 bg-paper-soft text-accent hover:underline">
             Vacature openen →

@@ -3,6 +3,62 @@
  * jobboards, interimkantoren, aggregators, sociale media, overheid, pers.
  * Vergelijking gebeurt op het geregistreerde domein (zonder subdomein).
  */
+/**
+ * Interim-, uitzend-, selectie-, recruitment- en HR-dienstverleners: echte tussenpersonen.
+ * Let op: jobboards en ATS-platformen staan hier NIET in. Een vacature op VDAB, Jooble of Recruitee
+ * kan perfect van een rechtstreekse werkgever zijn; die domeinen blokkeren we enkel bij bedrijfsontdekking.
+ */
+const AGENCY_LIST = [
+  "randstad.be",
+  "tempo-team.be",
+  "adecco.be",
+  "manpower.be",
+  "startpeople.be",
+  "accentjobs.be",
+  "asap.be",
+  "synergiejobs.be",
+  "unique.be",
+  "konvert.be",
+  "agilitas.be",
+  "actief.be",
+  "actiefinterim.be",
+  "vivaldisinterim.be",
+  "vivaldis.be",
+  "hays.be",
+  "roberthalf.be",
+  "roberthalf.com",
+  "michaelpage.be",
+  "pagepersonnel.be",
+  "hudson.be",
+  "hudsonsolutions.com",
+  "daoust.be",
+  "trixxo.be",
+  "forumjobs.be",
+  "jobfixers.be",
+  "itzu.eu",
+  "itzujobs.be",
+  "t-interim.be",
+  "aquilaconsulting.be",
+  "express.be",
+  "impactjobs.be",
+  "bright-plus.be",
+  "brightplus.be",
+  "walters.be",
+  "robertwalters.com",
+  "sdworx.be",
+  "sdworx.com",
+  "acerta.be",
+  "securex.be",
+  "liantis.be",
+  "partena-professional.be",
+  "talentus.be",
+  "wearepeople.be",
+  "poolstok.be",
+  "flexpoint.be",
+  "profilegroup.com",
+];
+export const AGENCY_DOMAINS = new Set<string>(AGENCY_LIST);
+
 export const BLOCKED_DOMAINS = new Set<string>([
   // Jobboards en aggregators
   "vdab.be",
@@ -69,58 +125,11 @@ export const BLOCKED_DOMAINS = new Set<string>([
   "successfactors.com",
   "myworkdayjobs.com",
   "icims.com",
-  // Interim en selectiekantoren
-  "randstad.be",
-  "tempo-team.be",
-  "adecco.be",
-  "manpower.be",
-  "startpeople.be",
-  "accentjobs.be",
-  "asap.be",
-  "synergiejobs.be",
-  "unique.be",
-  "konvert.be",
-  "agilitas.be",
-  "actief.be",
-  "actiefinterim.be",
-  "vivaldisinterim.be",
-  "vivaldis.be",
-  "hays.be",
-  "roberthalf.be",
-  "roberthalf.com",
-  "michaelpage.be",
-  "pagepersonnel.be",
-  "hudson.be",
-  "hudsonsolutions.com",
-  "daoust.be",
-  "trixxo.be",
-  "forumjobs.be",
-  "jobfixers.be",
-  "itzu.eu",
-  "itzujobs.be",
-  "t-interim.be",
-  "aquilaconsulting.be",
-  "express.be",
-  "impactjobs.be",
-  "bright-plus.be",
-  "brightplus.be",
-  "walters.be",
-  "robertwalters.com",
-  "sdworx.be",
-  "sdworx.com",
-  "acerta.be",
-  "securex.be",
-  "liantis.be",
-  "partena-professional.be",
-  "talentus.be",
-  "wearepeople.be",
   "selor.be",
   "werkenvoor.be",
   "jobpunt.be",
-  "poolstok.be",
-  "flexpoint.be",
   "stepstone.com",
-  "profilegroup.com",
+  ...AGENCY_LIST,
   // Sociaal, pers, naslag, overheid
   "facebook.com",
   "instagram.com",
@@ -190,11 +199,33 @@ const BLOCKED_FRAGMENTS = ["interim", "jobs", "vacature", "job-", "jobboard", "r
 const INTERMEDIARY_STRONG = /\b(recruitment|recruiting|rekrutering|werving\s*(en|&)\s*selectie|headhunt\w*|executive search|interim(kantoor|bureau)?|uitzend\w*|staffing|detachering|outsourcing|hr[- ]?(consultancy|consulting|dienstverlen\w+|partner)|consultancy|consulting|payroll\w*|sourcing partner|selectiekantoor|talent acquisition)\b/i;
 
 /** Bedrijfsnaam of vacature-url van een tussenpersoon (interim, recruitment, consultancy, detachering)? */
+/** Merknamen van bekende kantoren, afgeleid uit hun domein (randstad, adecco, tempoteam, …). */
+const AGENCY_BRANDS = Array.from(
+  new Set(AGENCY_LIST.map((d) => d.split(".")[0].replace(/[^a-z0-9]/g, "")).filter((b) => b.length >= 5 && !["express", "unique", "actief", "people"].includes(b))),
+);
+
 export function isIntermediaryCompany(name: string | null | undefined, url?: string | null): boolean {
   if (name && INTERMEDIARY_STRONG.test(name)) return true;
+  const compact = (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (compact && AGENCY_BRANDS.some((b) => compact === b || compact.startsWith(b))) return true;
   if (name && /\b(interim|jobs|staffing|select|recruit|consult|talent|people|hr)\b/i.test(name) && /\b(group|groep|partners?|solutions?|services?|office|bureau|kantoor|agency)\b/i.test(name)) return true;
-  if (url && isBlockedDomain(url)) return true;
+  // Enkel domeinen van tussenpersonen; een jobboard of ATS-platform zegt niets over de werkgever.
+  if (url && isAgencyDomain(url)) return true;
   return false;
+}
+
+/** Fragmenten in een domeinnaam die op een tussenpersoon wijzen (niet: "jobs", "vacature", "talent"). */
+const AGENCY_FRAGMENTS = ["interim", "uitzend", "staffing", "headhunt", "werving", "recruit", "detacher", "outsourc", "payroll"];
+
+/** Domein van een interim-, selectie- of recruitmentkantoor? Jobboards en ATS-platformen niet. */
+export function isAgencyDomain(domainOrUrl: string): boolean {
+  const d = registrableDomain(domainOrUrl);
+  if (!d) return false;
+  if (AGENCY_DOMAINS.has(d)) return true;
+  // Bekende jobboards/ATS met een verdacht woord in de naam (bv. regiotalent) zijn geen bureau.
+  if (BLOCKED_DOMAINS.has(d) && !AGENCY_DOMAINS.has(d)) return false;
+  const label = d.split(".")[0];
+  return AGENCY_FRAGMENTS.some((f) => label.includes(f));
 }
 
 export function looksLikeIntermediary(title: string, text: string): { yes: boolean; reason?: string } {

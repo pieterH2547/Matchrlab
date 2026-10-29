@@ -13,6 +13,7 @@ import { MODELS } from "@/lib/config";
 import { recordSearches, reserveBraveQueries } from "@/lib/budget";
 import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
+import { countCall, noteFailure } from "@/lib/usage";
 import { resolveOpenAIModel } from "@/lib/openaiModels";
 
 export type SearchResult = { url: string; title: string; description: string };
@@ -64,6 +65,7 @@ export async function webSearch(query: string, opts: SearchOptions = {}): Promis
     if (until && until > Date.now()) continue;
     let r: SearchResult[] | null = null;
     try {
+      countCall(p);
       r = await runProvider(p, query, opts);
     } catch (e) {
       console.warn(`[search] ${p} gooide een fout: ${e instanceof Error ? e.message : String(e)}`);
@@ -75,6 +77,7 @@ export async function webSearch(query: string, opts: SearchOptions = {}): Promis
       return r.filter((x) => /^https?:\/\//.test(x.url)).slice(0, opts.count ?? 20);
     }
     cooling.set(p, Date.now() + COOL_MS);
+    noteFailure(`Zoekmachine ${p} faalde; de volgende nam over.`);
     console.warn(`[search] ${p} faalde; volgende provider`);
   }
   return null;
@@ -154,7 +157,7 @@ async function serperSearch(key: string, query: string, opts: SearchOptions): Pr
   return data ? mapResults(data.organic) : null;
 }
 
-export type PlaceResult = { name: string; website: string; address: string; category: string };
+export type PlaceResult = { name: string; website: string; address: string; category: string; lat: number | null; lng: number | null };
 
 /**
  * Google Maps via Serper: lokale bedrijven met hun website, bv. "boekhoudkantoor Mechelen".
@@ -163,14 +166,25 @@ export type PlaceResult = { name: string; website: string; address: string; cate
 export async function placesSearch(query: string): Promise<PlaceResult[] | null> {
   const key = await getSetting("SERPER_API_KEY");
   if (!key) return null;
+  countCall("serper_maps");
   const data = (await postJson("https://google.serper.dev/places", { q: query, gl: "be", hl: "nl" }, { "x-api-key": key })) as {
-    places?: { title?: string; website?: string; address?: string; category?: string; type?: string }[];
+    places?: { title?: string; website?: string; address?: string; category?: string; type?: string; latitude?: number; longitude?: number }[];
   } | null;
-  if (!data) return null;
+  if (!data) {
+    noteFailure("Google Maps (Serper) gaf geen antwoord.");
+    return null;
+  }
   await recordSearches(1).catch(() => undefined);
   return (data.places ?? [])
     .filter((p) => p.website && /^https?:\/\//.test(p.website))
-    .map((p) => ({ name: (p.title ?? "").trim(), website: p.website!, address: (p.address ?? "").trim(), category: (p.category ?? p.type ?? "").trim() }));
+    .map((p) => ({
+      name: (p.title ?? "").trim(),
+      website: p.website!,
+      address: (p.address ?? "").trim(),
+      category: (p.category ?? p.type ?? "").trim(),
+      lat: typeof p.latitude === "number" ? p.latitude : null,
+      lng: typeof p.longitude === "number" ? p.longitude : null,
+    }));
 }
 
 async function linkupSearch(key: string, query: string, opts: SearchOptions): Promise<SearchResult[] | null> {

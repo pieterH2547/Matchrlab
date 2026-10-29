@@ -34,12 +34,30 @@ export const LIMITS = {
   maxPerEmployer: 2,
   /** Max unieke bedrijfsdomeinen per run (stap 3). */
   maxDomainsPerRun: 30,
+  /** Max Google Maps-zoekopdrachten per run (soort bedrijf × gemeente). */
+  maxMapsQueries: 6,
+  /** Max vacatures die we vóór de eindscoring op hun pagina controleren. */
+  maxVerifyPerRun: 40,
   /** Max detailpagina's per bedrijf (stap 5). */
   maxDetailPagesPerCompany: 4,
   /** Max vacatures die naar het scoringsmodel gaan (stap 6). */
-  maxJobsToScore: 30,
-  /** Max vacatures per jobboard-bron per run. */
+  maxJobsToScore: 40,
+  /** Max vacatures per jobboard-bron per run (limiet per bron). */
   maxJobsPerBoard: 60,
+  /** Limiet per zoekopdracht: Google Jobs-pagina's (±10 per pagina) per functietitel. */
+  googleJobsPagesPerQuery: 2,
+  /** Limiet per zoekopdracht: resultaten per Jooble- en Adzuna-vraag. */
+  resultsPerQuery: 30,
+  /** Aantal functietitels (hoofdtitel + verwante) waarmee elke jobboard bevraagd wordt. */
+  titlesPerSource: 3,
+  /** Limiet per run: max ruwe vacatures die we samen bewaren (alle bronnen). */
+  maxRawJobsPerRun: 200,
+  /** Streefwaarde voor de ruwe pool vóór scoring (geen minimum; enkel voor de diagnose). */
+  targetRawPool: 30,
+  /** Vacatures per AI-scoringsbatch; ontbrekende id's worden één keer opnieuw gevraagd. */
+  scoreBatchSize: 10,
+  /** Minimum dat de voorselectie doorlaat (aangevuld op titelgelijkenis als de AI te streng is). */
+  minPreselectKeep: 15,
   /** Niets twee keer binnen deze termijn: pagina's en bedrijven. */
   cacheTtlDays: 7,
   /** Brave gratis tier: 2000 queries per maand. We stoppen eronder. */

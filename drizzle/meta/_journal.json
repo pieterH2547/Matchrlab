@@ -43,6 +43,20 @@
       "when": 1793297842058,
       "tag": "0005_mysterious_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793299654962,
+      "tag": "0006_loving_malice",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793300618659,
+      "tag": "0007_openai_web",
+      "breakpoints": true
     }
   ]
 }

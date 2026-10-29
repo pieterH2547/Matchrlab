@@ -23,7 +23,14 @@ Regels:
 - uncertainties: de 2-3 belangrijkste onzekerheden, telkens beginnend met "AANNAME:" of "ONBEKEND:" (bv. contracttype, beschikbaarheid, loonverwachting, mobiliteit, talen).
 - open_questions: max 3 beslissende open vragen aan de kandidaat, informeel (je/jij, nooit "u"). Geen batterij intakevragen.
 - consent: "bevestigd" enkel als cv of opdracht expliciet zegt dat de kandidaat akkoord is met voorstelling bij werkgevers; anders "onbekend".
-- hard_requirements: diploma's, licenties en attesten die de kandidaat aantoonbaar heeft (bv. VCA, rijbewijs C, bachelor chemie).`;
+- hard_requirements: diploma's, licenties en attesten die de kandidaat aantoonbaar heeft (bv. VCA, rijbewijs C, bachelor chemie).
+- job_titles: de primaire titels en hun synoniemen zoals werkgevers ze echt gebruiken.
+- related_titles: verwante functies waarvoor de kandidaat realistisch in aanmerking komt op basis van overdraagbare
+  vaardigheden, zonder sprong in niveau of vak (een junior boekhouder is geen controller). Max 5.
+- company_types: soorten bedrijven die dit profiel aanwerven, kort zoals je ze in Google Maps intikt
+  ("boekhoudkantoor", "chemiebedrijf", "voedingsbedrijf", "installateur HVAC"). Nooit uitzendkantoren of recruitmentbureaus.
+- nearby_municipalities: max 10 gemeenten binnen de straal rond de regio, de regio zelf eerst, dichtstbij eerst.
+- region_lat / region_lng: coördinaten van de regio (gemeente) als je ze kent, anders 0.`;
 
 export async function buildProfile(input: ProfileInput, meter: CostMeter): Promise<Profile> {
   const previous = input.previousProfile
@@ -51,6 +58,11 @@ export function normalizeProfile(p: Profile): Profile {
     open_questions: (p.open_questions ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3),
     consent: p.consent ?? "onbekend",
     hard_requirements: dedupe(p.hard_requirements ?? []).slice(0, 6),
+    related_titles: dedupe(p.related_titles ?? []).filter((t) => !(p.job_titles ?? []).some((j) => j.toLowerCase() === t.toLowerCase())).slice(0, 5),
+    company_types: dedupe(p.company_types ?? []).slice(0, 6),
+    nearby_municipalities: dedupe(p.nearby_municipalities ?? []).slice(0, 10),
+    region_lat: Number.isFinite(p.region_lat) ? p.region_lat : 0,
+    region_lng: Number.isFinite(p.region_lng) ? p.region_lng : 0,
   };
 }
 

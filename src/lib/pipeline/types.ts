@@ -17,6 +17,11 @@ export const ProfileSchema = z.object({
   open_questions: z.array(z.string()).max(3).describe("Max 3 beslissende open vragen aan de kandidaat"),
   consent: z.enum(["bevestigd", "onbekend"]).describe("Is expliciet vermeld dat de kandidaat akkoord is met externe voorstelling?"),
   hard_requirements: z.array(z.string()).max(6).describe("Harde diploma's, licenties of certificaten die de kandidaat aantoonbaar heeft"),
+  related_titles: z.array(z.string()).max(5).describe("Verwante functies waarvoor de kandidaat realistisch in aanmerking komt (geen sprongen in niveau of vak)"),
+  company_types: z.array(z.string()).max(6).describe("Soorten bedrijven die dit profiel aanwerven, zoals je ze in Google Maps intikt (bv. 'boekhoudkantoor', 'chemiebedrijf')"),
+  nearby_municipalities: z.array(z.string()).max(10).describe("Gemeenten binnen de straal rond de regio, dichtstbij eerst, de regio zelf eerst"),
+  region_lat: z.number().describe("Breedtegraad van de regio (gemeente), of 0 als onbekend"),
+  region_lng: z.number().describe("Lengtegraad van de regio (gemeente), of 0 als onbekend"),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 
@@ -64,7 +69,9 @@ export const ScoringSchema = z.object({
       mobiliteit: z.number().int().min(0).max(1),
       contract: z.enum(["vast", "tijdelijk", "interim", "freelance", "onbekend"]),
       distance_km: z.number().int().describe("Geschatte rijafstand in km tussen de regio van de kandidaat en de werkplek; -1 als de werkplek onbekend is"),
-      employer_identifiable: z.boolean().describe("Is de eindwerkgever bij naam identificeerbaar (geen bureau 'voor een klant')?"),
+      employer_status: z
+        .enum(["rechtstreeks", "tussenpersoon", "onbekend"])
+        .describe("rechtstreeks = de eindwerkgever plaatst zelf; tussenpersoon = bureau/interim 'voor een klant'; onbekend = niet betrouwbaar vast te stellen"),
       hard_blocker: z.string().describe("Bewezen harde eis die de kandidaat niet haalt, of lege string"),
       argument: z.string().describe("Eén concreet matchargument"),
       risk: z.string().describe("Eén concreet risico of onzekerheid"),
@@ -92,7 +99,7 @@ export const FollowupSchema = z.object({
 
 /** Genormaliseerde vacature, voor alle bronnen gelijk. */
 export type NormalizedJob = {
-  source: "company_site" | "vdab" | "adzuna" | "jooble" | "google_jobs" | "brave";
+  source: "company_site" | "vdab" | "adzuna" | "jooble" | "google_jobs" | "brave" | "web" | "openai_web";
   externalId?: string;
   url: string;
   title: string;
@@ -136,10 +143,84 @@ export type RunState = {
   signals?: SignalView[];
   /** Max 3 commerciële acties. */
   actions?: ActionView[];
+  /** Werkgevers (spoor B-resultaat), max 10. */
+  employers?: EmployerView[];
+  /** Run-overzicht: tellers, API-aanroepen per bron, mislukte bronnen, duur. */
+  stats?: RunStats;
+  /** Alle domeinen die deze run in beeld bracht (ook hergebruikte), voor de werkgeverslijst. */
+  companyDomains?: string[];
   /** Run gestopt na het profiel omdat er geen woonplaats was. */
   needsRegion?: boolean;
   kpi?: { verifiedJobs: number; proactive: number; relationsChecked: number; draftsSaved: number };
 };
+
+export type RunStats = {
+  startedAt?: number;
+  durationMs?: number;
+  rawJobs?: number;
+  uniqueJobs?: number;
+  verifiedActive?: number;
+  closedOrRejected?: number;
+  aboveThreshold?: number;
+  employersExamined?: number;
+  apiCalls?: Record<string, number>;
+  failures?: string[];
+  /** Trechter per fase en per bron, met redenen. Nooit cv-inhoud of keys. */
+  funnel?: Funnel;
+};
+
+export type SourceFunnel = { queries: number; raw: number; kept: number; error?: string; skipped?: string };
+
+export type Funnel = {
+  sources?: Record<string, SourceFunnel>;
+  /** Ruwe vacatures uit alle bronnen (jobboards, zoekmachines, OpenAI Web Search, bedrijfssites). */
+  found?: number;
+  /** Bedrijfssites: vacatures uit eigen jobpagina's en ATS-feeds. */
+  siteJobs?: number;
+  /** Dubbels verwijderd (bij binnenkomst en bij het samenvoegen). */
+  duplicates?: number;
+  prefilter?: { regio: number; tussenpersoon: number; uitsluiting: number };
+  unique?: number;
+  preselect?: { input: number; aiKept: number; filled: number; output: number; aiFailed: boolean };
+  /** Gecontroleerd op de vacaturepagina. */
+  checked?: number;
+  verifiedActive?: number;
+  closed?: number;
+  toScoring?: number;
+  scoring?: { requested: number; scored: number; missing: number; batches: number; failedBatches: number };
+  reasons?: { onder_drempel: number; contract_tijdelijk: number; tussenpersoon: number; buiten_straal: number; harde_eis: number };
+  aboveThreshold?: number;
+  shown?: number;
+  toVerify?: { contract: number; werkgever: number };
+  ai?: { rounds: number; searches: number; raw: number; kept: number; unique?: number; verifiedActive?: number; aboveThreshold?: number; costEur: number; durationMs: number; model: string | null; error?: string; skipped?: string };
+};
+
+export type EmployerView = {
+  name: string;
+  domain: string;
+  municipality: string;
+  website: string;
+  activity: string;
+  why: string;
+  /** Feitelijk: enkel wat Matchr zelf zag (open vacatures op de jobsite, passende vacature). Nooit verzonnen. */
+  signal: string | null;
+  careersUrl: string | null;
+  hasMatchingJob: boolean;
+  openJobs: number;
+  distanceKm: number | null;
+};
+
+/** Werkgevers beoordelen: enkel relevantie en activiteit, geen feiten verzinnen. */
+export const EmployersSchema = z.object({
+  employers: z.array(
+    z.object({
+      id: z.number().int(),
+      relevant: z.boolean(),
+      activity: z.string().describe("Hoofdactiviteit in een paar woorden, enkel op basis van de gegeven info"),
+      why: z.string().describe("Eén zin waarom het kandidaatprofiel er relevant kan zijn. Geen vacatures of plannen verzinnen."),
+    }),
+  ),
+});
 
 export type SignalView = {
   company: string;
@@ -208,10 +289,11 @@ export type MatchView = {
   company: string;
   location: string;
   url: string;
-  source: "company_site" | "vdab" | "adzuna" | "jooble" | "google_jobs" | "brave";
+  source: "company_site" | "vdab" | "adzuna" | "jooble" | "google_jobs" | "brave" | "web" | "openai_web";
   firstSeenAt: string;
   argument: string;
   risk: string;
+  verification: string;
 };
 
 export type RunView = {

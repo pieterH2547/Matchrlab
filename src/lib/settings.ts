@@ -24,7 +24,7 @@ export const SECRET_KEYS = [
   "JINA_API_KEY",
   "FIRECRAWL_API_KEY",
 ] as const;
-export const CONFIG_KEYS = ["AI_PROVIDER", "OPENAI_MODEL_CHEAP", "OPENAI_MODEL_SCORING", "SEARCH_PROVIDER", "ANTHROPIC_MONTHLY_BUDGET_EUR"] as const;
+export const CONFIG_KEYS = ["MIN_SCORE", "AI_PROVIDER", "OPENAI_MODEL_CHEAP", "OPENAI_MODEL_SCORING", "SEARCH_PROVIDER", "ANTHROPIC_MONTHLY_BUDGET_EUR", "OPENAI_WEBSEARCH_ENABLED", "OPENAI_WEBSEARCH_ROUNDS", "OPENAI_WEBSEARCH_MAX_EUR", "OPENAI_WEBSEARCH_MODEL"] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -32,6 +32,7 @@ export type SettingKey = SecretKey | ConfigKey;
 
 export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url?: string; required?: boolean; options?: string[] }> = {
   ANTHROPIC_API_KEY: { label: "Anthropic API-key (optioneel)", help: "Enkel nodig als je AI-aanbieder op auto of anthropic zet.", url: "https://console.anthropic.com/settings/keys", },
+  MIN_SCORE: { label: "Matchdrempel", help: "Vacatures onder deze score op 10 worden niet getoond. Standaard 6.", options: ["4", "5", "6", "7", "8"] },
   AI_PROVIDER: { label: "AI-aanbieder", help: "openai (standaard) = enkel OpenAI. auto = OpenAI met Claude als reserve. anthropic = enkel Claude.", options: ["openai", "auto", "anthropic"] },
   OPENAI_API_KEY: { label: "OpenAI API-key", help: "Aan te maken op platform.openai.com door een beheerder van de RecruitrLAB-organisatie. Een ChatGPT-abonnement bevat geen API-tegoed.", url: "https://platform.openai.com/api-keys" },
   OPENAI_MODEL_CHEAP: { label: "OpenAI-model", help: "Automatisch: het nieuwste lichte model van je account." },
@@ -48,6 +49,10 @@ export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url
   JOOBLE_API_KEY: { label: "Jooble API-key", help: "Gratis vacature-API. Vraag een key aan voor België (be.jooble.org).", url: "https://be.jooble.org/api/about" },
   FIRECRAWL_API_KEY: { label: "Firecrawl API-key", help: "Gratis 1.000 credits per maand. Leest jobsites die Jina niet krijgt.", url: "https://www.firecrawl.dev/app/api-keys" },
   JINA_API_KEY: { label: "Jina Reader API-key", help: "Optioneel; werkt ook zonder, met lagere limieten.", url: "https://jina.ai/reader" },
+  OPENAI_WEBSEARCH_ENABLED: { label: "OpenAI Web Search", help: "1 = aan (standaard), 0 = uit. Gebruikt de gedeelde OpenAI-key.", options: ["1", "0"] },
+  OPENAI_WEBSEARCH_ROUNDS: { label: "Zoekrondes OpenAI Web Search", help: "Max aantal iteratieve zoekrondes per run (1-5). Standaard 3.", options: ["1", "2", "3", "4", "5"] },
+  OPENAI_WEBSEARCH_MAX_EUR: { label: "Max zoekkosten per run (€)", help: "Boven dit bedrag start geen nieuwe zoekronde. Standaard 0,15." },
+  OPENAI_WEBSEARCH_MODEL: { label: "Model voor Web Search", help: "Leeg = het lichte OpenAI-model van je account." },
   ANTHROPIC_MONTHLY_BUDGET_EUR: { label: "Maandbudget AI (€)", help: "Boven dit bedrag aan OpenAI-kosten weigert Matchr nieuwe runs." },
 };
 
@@ -118,6 +123,12 @@ export async function getSetting(key: SettingKey): Promise<string | undefined> {
 
 export async function hasSetting(key: SettingKey): Promise<boolean> {
   return (await getSetting(key)) !== undefined;
+}
+
+/** Matchdrempel op 10 (standaard 6), als score op 100 voor de interne vergelijking. */
+export async function minScore100(): Promise<number> {
+  const v = Number(await getSetting("MIN_SCORE"));
+  return (Number.isFinite(v) && v >= 1 && v <= 10 ? v : 6) * 10;
 }
 
 export async function monthlyBudgetEur(): Promise<number> {

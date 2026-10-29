@@ -11,13 +11,17 @@ import { CostMeter } from "@/lib/llm";
 import { LIMITS } from "@/lib/config";
 import { buildProfile, isVagueRegion } from "./profile";
 import { searchJobboards } from "./jobboards";
-import { discoverCompanies } from "./discover";
+import { discoverCompanies, type DiscoveredCompany } from "./discover";
+import { verifyMany } from "./verify";
+import { buildEmployers } from "./employers";
+import { withUsage, mergeCalls } from "@/lib/usage";
+import { minScore100 } from "@/lib/settings";
 import { findJobsPage } from "./findJobsPage";
 import { extractFromAts, extractFromPage } from "./extract";
 import { preselect, scoreJobs } from "./score";
-import { prefilterJobs, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
-import { withinRadius } from "@/lib/geo";
-import { isIntermediaryCompany } from "@/lib/blocklist";
+import { prefilterJobs, prefilterWithReasons, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
+import { applyHardFilters, explainNoMatches, toVerifyFlags } from "./filters";
+import type { Funnel } from "./types";
 import { redactSecrets } from "@/lib/redact";
 import type { RunState, StepState, NormalizedJob, Profile } from "./types";
 
@@ -45,6 +49,25 @@ function companyLabel(c: Pick<Company, "name" | "domain">): string {
 
 /** Eén stap uitvoeren. Geeft de nieuwe status terug. */
 export async function advanceRun(runId: number, emit: Emit): Promise<Run["status"]> {
+  const { result, usage } = await withUsage(() => advanceRunInner(runId, emit));
+  // API-aanroepen per bron en mislukte bronnen bijschrijven in het run-overzicht.
+  if (Object.keys(usage.calls).length || usage.failures.length) {
+    const row = (await db().select().from(schema.runs).where(eq(schema.runs.id, runId)).limit(1))[0];
+    if (row) {
+      const st = row.state ?? { steps: [] };
+      const stats = st.stats ?? {};
+      st.stats = {
+        ...stats,
+        apiCalls: mergeCalls(stats.apiCalls, usage.calls),
+        failures: Array.from(new Set([...(stats.failures ?? []), ...usage.failures])).slice(0, 12),
+      };
+      await saveRun(runId, { state: st });
+    }
+  }
+  return result;
+}
+
+async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]> {
   const run = (await db().select().from(schema.runs).where(eq(schema.runs.id, runId)).limit(1))[0];
   if (!run) throw new Error("Run niet gevonden.");
   if (run.status === "done" || run.status === "failed") return run.status;
@@ -85,21 +108,40 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
           return "done";
         }
         const profile = run.profile!;
-        state = setStep(state, "jobboards", { status: "running", detail: "VDAB en Adzuna" });
+        state = setStep(state, "jobboards", { status: "running", detail: "Google Jobs, Jooble, Adzuna, gerichte Google-zoekopdrachten en OpenAI Web Search" });
         emit({ type: "steps", steps: state.steps });
         const boards = await searchJobboards(profile);
-        const filtered = prefilterJobs(dedupeJobs(boards.jobs), profile);
+        const unique = dedupeJobs(boards.jobs);
+        const pf = prefilterWithReasons(unique, profile);
+        const filtered = pf.kept;
         const stored = await upsertJobs(filtered);
+        if (boards.ai) meter.eur += boards.ai.costEur;
+        const perSource = Object.entries(boards.perSource)
+          .filter(([, n]) => n > 0)
+          .map(([k, n]) => `${SOURCE_LABEL[k] ?? k} ${n}`)
+          .join(", ");
+        const funnel: Funnel = {
+          ...(state.stats?.funnel ?? {}),
+          sources: boards.sources,
+          found: (state.stats?.funnel?.found ?? 0) + boards.jobs.length,
+          duplicates: (state.stats?.funnel?.duplicates ?? 0) + (boards.jobs.length - unique.length),
+          prefilter: pf.dropped,
+          ai: boards.ai
+            ? { rounds: boards.ai.rounds, searches: boards.ai.searches, raw: boards.ai.raw, kept: boards.ai.jobs.length, costEur: boards.ai.costEur, durationMs: boards.ai.durationMs, model: boards.ai.model, error: boards.ai.error, skipped: boards.ai.skipped }
+            : undefined,
+        };
         state = {
           ...setStep(state, "jobboards", {
             status: "done",
-            detail: `${stored.length} vacatures · ${boards.jobs.length} gevonden, ${boards.jobs.length - filtered.length} buiten regio${boards.notes.length ? ` · ${boards.notes.join(" ")}` : ""}`,
+            detail: `${stored.length} bruikbaar · ${boards.jobs.length} gevonden${perSource ? ` (${perSource})` : ""} · ${boards.jobs.length - unique.length} dubbel · ${pf.dropped.regio} buiten regio, ${pf.dropped.tussenpersoon} tussenpersoon${pf.dropped.uitsluiting ? `, ${pf.dropped.uitsluiting} uitgesloten` : ""}${boards.notes.length ? ` · ${boards.notes.join(" ")}` : ""}`,
           }),
+          stats: { ...(state.stats ?? {}), startedAt: state.stats?.startedAt ?? run.createdAt.getTime(), rawJobs: (state.stats?.rawJobs ?? 0) + boards.jobs.length, funnel },
           jobIds: [...(state.jobIds ?? []), ...stored.map((j) => j.id)],
           boardJobsFound: stored.length,
           braveQueriesUsed: (state.braveQueriesUsed ?? 0) + boards.braveQueries,
         };
         await saveRun(runId, { status: "discover", state });
+        await addCost(runId, meter);
         emit({ type: "status", status: "discover", state });
         return "discover";
       }
@@ -112,22 +154,33 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
         const freshDomains = new Set(fresh.map((c) => c.domain));
         const remainingBrave = Math.max(0, LIMITS.braveQueriesPerRun - (state.braveQueriesUsed ?? 0));
         const disc = await discoverCompanies(profile, meter, { maxQueries: Math.min(8, remainingBrave) });
+        await saveDiscovered(disc.companies);
         const reused = fresh.filter((c) => disc.domains.includes(c.domain));
         const toCrawl = disc.domains.filter((d) => !freshDomains.has(d));
         const reusedJobs = reused.length ? await jobsOfCompanies(reused.map((c) => c.id)) : [];
-        const reusedFiltered = prefilterJobs(reusedJobs, profile);
+        const reusedPf = prefilterWithReasons(reusedJobs, profile);
+        const reusedFiltered = reusedPf.kept;
         state = {
           ...setStep(state, "discover", {
             status: "done",
-            detail: `${disc.domains.length} bedrijven · ${reused.length} recent al bekeken${disc.note ? ` · ${disc.note}` : ""}`,
+            detail: `${disc.domains.length} werkgevers (${disc.companies.filter((c) => c.via === "maps").length} via Google Maps) · ${disc.outOfRadius} buiten de straal geschrapt · ${reused.length} recent al bekeken${disc.note ? ` · ${disc.note}` : ""}`,
           }),
           domains: toCrawl,
+          companyDomains: disc.domains,
           crawlIndex: 0,
           companiesWithJobs: reused.filter((c) => c.openJobsCount > 0).length,
           siteJobsFound: reusedFiltered.length,
           jobIds: [...(state.jobIds ?? []), ...reusedFiltered.map((j) => j.id)],
           braveQueriesUsed: (state.braveQueriesUsed ?? 0) + disc.braveQueries,
         };
+        {
+          const f = state.stats?.funnel ?? {};
+          const p0 = f.prefilter ?? { regio: 0, tussenpersoon: 0, uitsluiting: 0 };
+          state.stats = {
+            ...(state.stats ?? {}),
+            funnel: { ...f, prefilter: { regio: p0.regio + reusedPf.dropped.regio, tussenpersoon: p0.tussenpersoon + reusedPf.dropped.tussenpersoon, uitsluiting: p0.uitsluiting + reusedPf.dropped.uitsluiting } },
+          };
+        }
         const next: Run["status"] = toCrawl.length ? "crawl" : "score";
         await saveRun(runId, { status: next, state });
         await addCost(runId, meter);
@@ -160,6 +213,7 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
             );
             done.add(d);
             if (r.hadJobs) state.companiesWithJobs = (state.companiesWithJobs ?? 0) + 1;
+            state.stats = { ...(state.stats ?? {}), rawJobs: (state.stats?.rawJobs ?? 0) + (r.rawCount ?? 0), employersExamined: (state.stats?.employersExamined ?? 0) + 1 };
             state.siteJobsFound = (state.siteJobsFound ?? 0) + r.jobs.length;
             state.jobIds = [...(state.jobIds ?? []), ...r.jobs.map((j) => j.id)];
             if (r.braveUsed) state.braveQueriesUsed = (state.braveQueriesUsed ?? 0) + 1;
@@ -183,59 +237,126 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
       }
       case "score": {
         const profile = run.profile!;
-        state = setStep(state, "score", { status: "running", detail: "voorselectie" });
+        state = setStep(state, "score", { status: "running", detail: "dubbels samenvoegen" });
         emit({ type: "steps", steps: state.steps });
+        const funnel: Funnel = { ...(state.stats?.funnel ?? {}) };
         const ids = Array.from(new Set(state.jobIds ?? []));
         const all = await loadJobs(ids);
         const names = await companyNames(all);
-        const deduped = dedupeJobs(all.map((j) => ({ ...j, companyName: names.get(j.id) ?? "" })));
-        const dedupedJobs = deduped.map((d) => all.find((j) => j.id === d.id)!).filter(Boolean);
-        const shortlist = await preselect(profile, dedupedJobs, names, meter);
-        state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${shortlist.length} naar eindscoring` });
-        emit({ type: "steps", steps: state.steps });
-        const result = await scoreJobs(profile, shortlist, names, meter);
-        // Harde zeef volgens de RecruitrLAB-methode, los van wat het model vond.
-        const scoredCount = result.scored.length;
-        const passing = result.scored.filter(
-          (s) =>
-            s.score >= LIMITS.minScoreToShow &&
-            s.contract !== "interim" &&
-            s.contract !== "freelance" &&
-            s.contract !== "tijdelijk" &&
-            s.employerIdentifiable &&
-            !s.hardBlocker &&
-            Boolean((names.get(s.job.id) ?? "").trim()) &&
-            withinRadius(s.job.location, profile.region, profile.radius_km) !== false &&
-            // Afstand volgens de AI: buiten de straal (+5 km marge) = weg; onbekende werkplek enkel bij bedrijfssites.
-            (s.distanceKm >= 0 ? s.distanceKm <= profile.radius_km + 5 : s.job.source === "company_site") &&
-            !isIntermediaryCompany(names.get(s.job.id) ?? "", s.job.url),
+        funnel.siteJobs = all.filter((j) => j.source === "company_site").length;
+        // Deterministisch dedupliceren; bij dubbels wint de pagina van de eindwerkgever.
+        const deduped = dedupeJobs(
+          all.map((j) => ({ ...j, companyName: names.get(j.id) ?? "", externalId: j.externalId, location: j.location, raw: j.raw })),
         );
-        // Max 2 vacatures per werkgever, max 10 in totaal, beste eerst.
+        const dedupedJobs = deduped.map((d) => all.find((j) => j.id === d.id)!).filter(Boolean);
+        funnel.duplicates = (funnel.duplicates ?? 0) + (all.length - dedupedJobs.length);
+        funnel.unique = dedupedJobs.length;
+        const preInfo = { input: 0, aiKept: 0, filled: 0, output: 0, aiFailed: false };
+        const shortlistRaw = await preselect(profile, dedupedJobs, names, meter, preInfo);
+        funnel.preselect = preInfo;
+
+        // Verificatie vóór de eindscoring: gesloten vacatures vallen weg, de rest krijgt een status.
+        state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${shortlistRaw.length} controleren of ze nog open zijn` });
+        emit({ type: "steps", steps: state.steps });
+        const toVerify = shortlistRaw.slice(0, LIMITS.maxVerifyPerRun);
+        const verdicts = await verifyMany(toVerify);
+        const shortlist = toVerify.filter((j) => verdicts.get(j.id)?.status !== "gesloten");
+        const closed = toVerify.length - shortlist.length;
+        funnel.checked = toVerify.length;
+        funnel.closed = closed;
+        funnel.verifiedActive = Array.from(verdicts.values()).filter((v) => v.status === "actief").length;
+        funnel.toScoring = shortlist.length;
+
+        state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${closed} gesloten · ${shortlist.length} naar eindscoring` });
+        emit({ type: "steps", steps: state.steps });
+        const scoreInfo = { requested: 0, scored: 0, missing: 0, batches: 0, failedBatches: 0 };
+        const result = await scoreJobs(profile, shortlist, names, meter, scoreInfo);
+        funnel.scoring = scoreInfo;
+        const threshold = await minScore100();
+        // Harde zeef: tijdelijk/interim, bevestigde tussenpersoon, buiten straal, harde eis, onder de drempel.
+        // Onbekend contract of onbekende werkgever blijft, met het label 'te verifiëren'.
+        const scoredCount = result.scored.length;
+        const { kept: passing, reasons } = applyHardFilters(result.scored, names, profile, threshold);
+        funnel.reasons = reasons;
+        funnel.aboveThreshold = result.scored.filter((s) => s.score >= threshold).length;
+        // Max 2 vacatures per werkgever, max 10 in totaal; bij gelijke score wint een geverifieerde, dan een bevestigde.
         const perEmployer = new Map<string, number>();
+        const verifiedFirst = (x: (typeof passing)[number]) => (verdicts.get(x.job.id)?.status === "actief" ? 2 : 0) + (x.contract === "vast" && x.employerStatus === "rechtstreeks" ? 1 : 0);
+        const employerKey = (s: (typeof passing)[number]) => {
+          const n = (names.get(s.job.id) ?? "").toLowerCase().replace(/\b(nv|bv|bvba|sa|srl|cvba)\b/g, "").replace(/[^a-z0-9]/g, "");
+          if (n) return n;
+          try {
+            return new URL(s.job.url).hostname;
+          } catch {
+            return `#${s.job.id}`;
+          }
+        };
         result.scored = passing
-          .sort((x, y) => y.score - x.score)
+          .sort((x, y) => y.score - x.score || verifiedFirst(y) - verifiedFirst(x))
           .filter((s) => {
-            const key = (names.get(s.job.id) ?? "").toLowerCase().replace(/\b(nv|bv|bvba|sa|srl|cvba)\b/g, "").replace(/[^a-z0-9]/g, "");
+            const key = employerKey(s);
             const n = perEmployer.get(key) ?? 0;
             if (n >= LIMITS.maxPerEmployer) return false;
             perEmployer.set(key, n + 1);
             return true;
           })
           .slice(0, LIMITS.maxResults);
-        if (scoredCount > 0 && result.scored.length === 0) {
-          result.intro = `Ik bekeek ${scoredCount} vacatures, maar geen enkele haalt 6/10 bij een rechtstreekse werkgever met vast contract.`;
+        funnel.shown = result.scored.length;
+        funnel.toVerify = {
+          contract: result.scored.filter((s) => s.contract === "onbekend").length,
+          werkgever: result.scored.filter((s) => s.employerStatus === "onbekend" || !(names.get(s.job.id) ?? "").trim()).length,
+        };
+        if (funnel.ai) {
+          const aiIds = new Set(dedupedJobs.filter((j) => j.source === "openai_web").map((j) => j.id));
+          funnel.ai = {
+            ...funnel.ai,
+            unique: aiIds.size,
+            verifiedActive: Array.from(verdicts.entries()).filter(([id, v]) => aiIds.has(id) && v.status === "actief").length,
+            aboveThreshold: passing.filter((s) => aiIds.has(s.job.id)).length,
+          };
+        }
+        if (result.scored.length === 0) {
+          result.intro = explainNoMatches({ found: funnel.found ?? 0, siteJobs: funnel.siteJobs ?? 0, unique: dedupedJobs.length, checked: toVerify.length, closed, toScoring: shortlist.length, scored: scoredCount, reasons }, threshold);
           result.followups = ["Zoek in een grotere straal", "Zoek met een verwante functietitel"];
         }
         await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
         if (result.scored.length) {
           await db()
             .insert(schema.matches)
-            .values(result.scored.map((s, i) => ({ runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1 })));
+            .values(
+              result.scored.map((s, i) => {
+                const v = verdicts.get(s.job.id);
+                const flags = toVerifyFlags(s, names.get(s.job.id) ?? "");
+                const verification = `${v ? `${v.status}: ${v.reason}` : "niet geverifieerd"}${flags.length ? ` | ${flags.join(", ")}` : ""}`;
+                return { runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1, verification };
+              }),
+            );
         }
+
+        // Werkgevers (spoor B-resultaat): ook zonder passende vacature, strikt feitelijk.
+        state = setStep(state, "score", { status: "running", detail: "interessante werkgevers selecteren" });
+        emit({ type: "steps", steps: state.steps });
+        const matchedCompanyIds = new Set(result.scored.map((s) => s.job.companyId).filter((x): x is number => x !== null));
+        const employers = await buildEmployers(profile, state.companyDomains ?? [], matchedCompanyIds, meter).catch(() => []);
+
+        const verifiedActive = result.scored.filter((s) => verdicts.get(s.job.id)?.status === "actief").length;
         state = {
-          ...setStep(state, "score", { status: "done", detail: `${scoredCount} gescoord · ${result.scored.length} passend (≥ 6/10)` }),
+          ...setStep(state, "score", {
+            status: "done",
+            detail: `${dedupedJobs.length} uniek · ${shortlist.length} naar AI · ${scoredCount} gescoord · ${result.scored.length} passend (≥ ${threshold / 10}/10) · ${verifiedActive} geverifieerd actief`,
+          }),
           intro: result.intro,
           followups: result.followups,
+          employers,
+          stats: {
+            ...(state.stats ?? {}),
+            uniqueJobs: dedupedJobs.length,
+            verifiedActive: funnel.verifiedActive,
+            closedOrRejected: dedupedJobs.length - result.scored.length,
+            aboveThreshold: passing.length,
+            durationMs: Date.now() - (state.stats?.startedAt ?? run.createdAt.getTime()),
+            funnel,
+          },
         };
         await saveRun(runId, { status: "done", state });
         await addCost(runId, meter);
@@ -268,6 +389,28 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
   }
 }
 
+const SOURCE_LABEL: Record<string, string> = { google_jobs: "Google Jobs", jooble: "Jooble", adzuna: "Adzuna", google_zoek: "Google-zoekopdrachten", openai_web: "OpenAI Web Search" };
+
+/** Bedrijfsgegevens uit Google Maps bewaren (naam, adres, categorie, coördinaten), zonder crawlstatus te raken. */
+async function saveDiscovered(companies: DiscoveredCompany[]): Promise<void> {
+  const rows = companies.filter((c) => c.via === "maps");
+  if (!rows.length) return;
+  await db()
+    .insert(schema.companies)
+    .values(rows.map((c) => ({ domain: c.domain, name: c.name ?? null, address: c.address ?? null, category: c.category ?? null, lat: c.lat ?? null, lng: c.lng ?? null })))
+    .onConflictDoUpdate({
+      target: schema.companies.domain,
+      set: {
+        name: sql`coalesce(excluded.name, ${schema.companies.name})`,
+        address: sql`coalesce(excluded.address, ${schema.companies.address})`,
+        category: sql`coalesce(excluded.category, ${schema.companies.category})`,
+        lat: sql`coalesce(excluded.lat, ${schema.companies.lat})`,
+        lng: sql`coalesce(excluded.lng, ${schema.companies.lng})`,
+      },
+    })
+    .catch(() => undefined);
+}
+
 /** Laat een trage taak niet langer dan `ms` duren. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -285,7 +428,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-type CrawlOutcome = { domain: string; jobs: Job[]; hadJobs: boolean; braveUsed: boolean; error?: string };
+type CrawlOutcome = { domain: string; jobs: Job[]; hadJobs: boolean; braveUsed: boolean; rawCount?: number; error?: string };
 
 /** Stap 4 + 5 voor één domein, met opslag in companies en jobs. */
 async function crawlDomain(domain: string, profile: Profile, meter: CostMeter, allowBrave: boolean): Promise<CrawlOutcome> {
@@ -331,14 +474,15 @@ async function crawlDomain(domain: string, profile: Profile, meter: CostMeter, a
       .values({ ...base, ats: atsValue, jobsUrl, openJobsCount: normalized.length, notes })
       .onConflictDoUpdate({
         target: schema.companies.domain,
-        set: { name: base.name, ats: atsValue, jobsUrl, lastCrawledAt: base.lastCrawledAt, openJobsCount: normalized.length, notes },
+        // De naam uit Google Maps is betrouwbaarder dan de paginatitel: die houden we als ze er al is.
+        set: { name: sql`coalesce(${schema.companies.name}, excluded.name)`, ats: atsValue, jobsUrl, lastCrawledAt: base.lastCrawledAt, openJobsCount: normalized.length, notes },
       })
       .returning()
   )[0];
 
   const filtered = prefilterJobs(normalized, profile);
   const stored = await upsertJobs(filtered.map((j) => ({ ...j, companyId: company.id })));
-  return { domain, jobs: stored, hadJobs: normalized.length > 0, braveUsed };
+  return { domain, jobs: stored, hadJobs: normalized.length > 0, braveUsed, rawCount: normalized.length };
 }
 
 async function recentlyCrawledCompanies(): Promise<Company[]> {

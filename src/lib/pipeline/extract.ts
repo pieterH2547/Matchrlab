@@ -24,7 +24,7 @@ export type ExtractResult = { jobs: NormalizedJob[]; detailPagesFetched: number;
 export async function extractFromAts(detection: AtsDetection, companyName: string): Promise<NormalizedJob[] | null> {
   const jobs = await detection.adapter.fetchJobs(detection.slug).catch(() => null);
   if (!jobs) return null;
-  return jobs.map((j) => ({ ...j, source: "company_site" as const, companyName }));
+  return jobs.map((j) => ({ ...j, source: "company_site" as const, companyName, raw: { ...((j.raw as Record<string, unknown>) ?? {}), via: "ats-feed" } }));
 }
 
 export async function extractFromPage(
@@ -48,6 +48,7 @@ export async function extractFromPage(
       location: j.location.trim(),
       descriptionText: j.description.trim(),
       companyName: input.companyName,
+      raw: { via: "jobsite" },
     }));
 
   let detailPagesFetched = 0;

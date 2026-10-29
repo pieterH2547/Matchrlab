@@ -125,6 +125,7 @@ export async function matchesForRun(runId: number): Promise<MatchView[]> {
     firstSeenAt: j.firstSeenAt.toISOString(),
     argument: m.argument ?? m.reason,
     risk: m.risk ?? "",
+    verification: m.verification ?? "niet geverifieerd",
   }));
 }
 

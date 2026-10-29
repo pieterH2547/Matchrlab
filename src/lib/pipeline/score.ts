@@ -24,11 +24,19 @@ genummerde lijst vacatures. Scoor elke vacature zonder schijnzekerheid volgens d
 - mobiliteit 0-1: realistische pendel binnen de opgegeven straal. Buiten de straal = 0.
 Bij een onbekende harde vereiste geef je geen automatische positieve punten.
 
+Beoordeel de werkelijke inhoud van de functie, niet de titel: kandidaten passen ook bij functies met een andere naam
+(zie verwante functies in het profiel). Weeg overdraagbare vaardigheden, relevante ervaring, het vereiste niveau,
+realistische doorgroei, sectorervaring en harde vereisten uit de vacature. Geen oppervlakkige keywordmatching.
+Ontbrekend bewijs voor een vereiste vaardigheid is GEEN aanwezige ervaring: dan geen punten en noem het als risico.
+
 Vul ook in:
 - contract: vast / tijdelijk / interim / freelance / onbekend, enkel op basis van wat in de vacature staat.
 - distance_km: geschatte afstand in km tussen de regio van de kandidaat en de werkplek (gebruik je kennis van
   Belgische gemeenten); -1 enkel als de werkplek echt niet te bepalen is. "Vlaanderen" of "België" als werkplek = -1.
-- employer_identifiable: false als de eindwerkgever niet bij naam bekend is (bureau, "voor onze klant", anoniem).
+- employer_status: "rechtstreeks" als de eindwerkgever zelf plaatst; "tussenpersoon" enkel als de vacature duidelijk
+  van een bureau komt ("voor onze klant", uitzend-, selectie- of recruitmentkantoor); "onbekend" als je het niet weet.
+  Onbekend is niet hetzelfde als tussenpersoon.
+- contract: "onbekend" als de vacature er niets over zegt. Onbekend is niet hetzelfde als tijdelijk.
 - hard_blocker: een bewezen harde eis (licentie, diploma, attest, taal) die de kandidaat aantoonbaar niet heeft; anders lege string.
 - argument: één concreet matchargument; risk: één concreet risico. Kort, informeel (je/jij), geen "u".
 
@@ -48,7 +56,7 @@ export type ScoredJob = {
   risk: string;
   contract: "vast" | "tijdelijk" | "interim" | "freelance" | "onbekend";
   distanceKm: number;
-  employerIdentifiable: boolean;
+  employerStatus: "rechtstreeks" | "tussenpersoon" | "onbekend";
   hardBlocker: string;
 };
 
@@ -63,6 +71,7 @@ function profileBlock(profile: Profile): string {
   return JSON.stringify(
     {
       functietitels: profile.job_titles,
+      verwante_functies: profile.related_titles ?? [],
       skills: profile.skills,
       jaren_ervaring: profile.years_experience,
       sectoren: profile.sectors,
@@ -77,29 +86,127 @@ function profileBlock(profile: Profile): string {
   );
 }
 
-export async function preselect(profile: Profile, jobsIn: Job[], names: Map<number, string>, meter: CostMeter): Promise<Job[]> {
-  if (jobsIn.length <= LIMITS.maxJobsToScore) return jobsIn;
+/** Eenvoudige titelgelijkenis met het profiel (0-1), zonder AI. Voor aanvulling en rangschikking. */
+export function titleSimilarity(profile: Profile, title: string): number {
+  const words = (t: string) => t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").split(/\s+/).filter((w) => w.length >= 4);
+  const target = new Set([...profile.job_titles, ...(profile.related_titles ?? [])].flatMap(words));
+  const w = words(title);
+  if (!w.length || !target.size) return 0;
+  // Ook deelwoorden: "procesoperator" ~ "operator".
+  const hit = w.filter((x) => Array.from(target).some((t) => t.includes(x) || x.includes(t))).length;
+  return hit / w.length;
+}
+
+export type PreselectInfo = { input: number; aiKept: number; filled: number; output: number; aiFailed: boolean };
+
+/**
+ * Voorselectie als er meer vacatures zijn dan we willen scoren. De AI mag ruim schrappen, maar:
+ * - enkel id's uit de batch tellen (verzonnen of verkeerde id's worden genegeerd);
+ * - laat de AI (bijna) niets over, dan vullen we aan op titelgelijkenis tot LIMITS.minPreselectKeep;
+ * - faalt de AI, dan houden we de batch.
+ */
+export async function preselect(
+  profile: Profile,
+  jobsIn: Job[],
+  names: Map<number, string>,
+  meter: CostMeter,
+  info?: PreselectInfo,
+  ask: (batch: Job[]) => Promise<number[]> = async (batch) => {
+    const user = `## Profiel\n${profileBlock(profile)}\n\n## Vacatures\n${batch.map((j) => describeJob(j, names.get(j.id) ?? "")).join("\n")}`;
+    const r = await llmJson({ system: PRESELECT_SYSTEM, user, schema: PreselectSchema, meter, effort: "low", maxTokens: 1000 });
+    return r.relevant_ids;
+  },
+): Promise<Job[]> {
+  const rec = info ?? { input: 0, aiKept: 0, filled: 0, output: 0, aiFailed: false };
+  rec.input = jobsIn.length;
+  if (jobsIn.length <= LIMITS.maxJobsToScore) {
+    rec.aiKept = rec.output = jobsIn.length;
+    return jobsIn;
+  }
   const keep = new Set<number>();
   const batchSize = 40;
   for (let i = 0; i < jobsIn.length; i += batchSize) {
     const batch = jobsIn.slice(i, i + batchSize);
-    const user = `## Profiel\n${profileBlock(profile)}\n\n## Vacatures\n${batch.map((j) => describeJob(j, names.get(j.id) ?? "")).join("\n")}`;
-    const r = await llmJson({ system: PRESELECT_SYSTEM, user, schema: PreselectSchema, meter, effort: "low", maxTokens: 1000 }).catch(() => ({ relevant_ids: batch.map((j) => j.id) }));
-    for (const id of r.relevant_ids) keep.add(id);
+    const valid = new Set(batch.map((j) => j.id));
+    const ids = await ask(batch).catch(() => {
+      rec.aiFailed = true;
+      return batch.map((j) => j.id);
+    });
+    for (const id of ids) if (valid.has(Number(id))) keep.add(Number(id));
   }
-  const kept = jobsIn.filter((j) => keep.has(j.id));
-  // Bedrijfssites eerst, dan boards; zo gaat de interessantste top-30 naar de eindscoring.
-  kept.sort((a, b) => Number(b.source === "company_site") - Number(a.source === "company_site"));
-  return kept.slice(0, LIMITS.maxJobsToScore);
+  rec.aiKept = keep.size;
+  const sim = new Map(jobsIn.map((j) => [j.id, titleSimilarity(profile, j.title)]));
+  const rank = (a: Job, b: Job) => Number(b.source === "company_site") - Number(a.source === "company_site") || (sim.get(b.id) ?? 0) - (sim.get(a.id) ?? 0);
+  const kept = jobsIn.filter((j) => keep.has(j.id)).sort(rank);
+  const minKeep = Math.min(LIMITS.minPreselectKeep, jobsIn.length);
+  if (kept.length < minKeep) {
+    const extra = jobsIn.filter((j) => !keep.has(j.id)).sort((a, b) => (sim.get(b.id) ?? 0) - (sim.get(a.id) ?? 0)).slice(0, minKeep - kept.length);
+    rec.filled = extra.length;
+    kept.push(...extra);
+  }
+  const out = kept.slice(0, LIMITS.maxJobsToScore);
+  rec.output = out.length;
+  return out;
 }
 
-export async function scoreJobs(profile: Profile, jobsIn: Job[], names: Map<number, string>, meter: CostMeter): Promise<ScoreResult> {
+export type ScoreInfo = { requested: number; scored: number; missing: number; batches: number; failedBatches: number };
+
+type ScoringOut = { intro: string; followups: string[]; scores: { id: number; kerntaken: number; vaardigheden: number; senioriteit: number; sector: number; mobiliteit: number; contract: ScoredJob["contract"]; distance_km: number; employer_status: ScoredJob["employerStatus"]; hard_blocker: string; argument: string; risk: string }[] };
+
+/**
+ * Eindscoring in kleine batches (parallel), zodat één te lang of afgekapt antwoord niet alles kost.
+ * Vacatures waarvoor het model geen (geldige) score gaf, vragen we één keer opnieuw; blijven ze
+ * ontbreken, dan tellen ze in de diagnose als 'niet gescoord' in plaats van stil te verdwijnen.
+ */
+export async function scoreJobs(
+  profile: Profile,
+  jobsIn: Job[],
+  names: Map<number, string>,
+  meter: CostMeter,
+  info?: ScoreInfo,
+  ask: (batch: Job[]) => Promise<ScoringOut> = (batch) => {
+    const user = `## Profiel\n${profileBlock(profile)}\n\n## Vacatures\n${batch.map((j) => describeJob(j, names.get(j.id) ?? "")).join("\n")}`;
+    return llmJson({ model: "scoring", system: SCORE_SYSTEM, user, schema: ScoringSchema, meter, effort: "medium", maxTokens: 6000 });
+  },
+): Promise<ScoreResult> {
+  const rec = info ?? { requested: 0, scored: 0, missing: 0, batches: 0, failedBatches: 0 };
+  rec.requested = jobsIn.length;
   if (jobsIn.length === 0) {
     return { scored: [], intro: "Ik vond geen vacatures die bij dit profiel passen. Pas de regio of functietitel aan en probeer opnieuw.", followups: ["Zoek in een grotere straal", "Zoek met een andere functietitel"] };
   }
-  const user = `## Profiel\n${profileBlock(profile)}\n\n## Vacatures\n${jobsIn.map((j) => describeJob(j, names.get(j.id) ?? "")).join("\n")}`;
-  const r = await llmJson({ model: "scoring", system: SCORE_SYSTEM, user, schema: ScoringSchema, meter, effort: "medium", maxTokens: 6000 });
   const byId = new Map(jobsIn.map((j) => [j.id, j]));
+  const got = new Map<number, ScoringOut["scores"][number]>();
+  let intro = "";
+  let followups: string[] = [];
+  let lastError: unknown = null;
+  const runBatches = async (list: Job[]) => {
+    const batches: Job[][] = [];
+    for (let i = 0; i < list.length; i += LIMITS.scoreBatchSize) batches.push(list.slice(i, i + LIMITS.scoreBatchSize));
+    rec.batches += batches.length;
+    const outs = await Promise.all(
+      batches.map((b) =>
+        ask(b).catch((e: unknown) => {
+          rec.failedBatches += 1;
+          lastError = e;
+          return null;
+        }),
+      ),
+    );
+    for (const [i, o] of outs.entries()) {
+      if (!o) continue;
+      const allowed = new Set(batches[i].map((j) => j.id));
+      for (const s of o.scores) if (allowed.has(s.id) && !got.has(s.id)) got.set(s.id, s);
+      if (!intro && o.intro) intro = o.intro;
+      if (!followups.length && o.followups?.length) followups = o.followups;
+    }
+  };
+  await runBatches(jobsIn);
+  const missing = jobsIn.filter((j) => !got.has(j.id));
+  if (missing.length) await runBatches(missing);
+  rec.missing = jobsIn.filter((j) => !got.has(j.id)).length;
+  // Faalde de AI volledig (key, tegoed, storing), dan is dat een echte fout en geen "geen matches".
+  if (got.size === 0 && lastError) throw lastError;
+  const r = { intro, followups, scores: Array.from(got.values()) };
   const scored: ScoredJob[] = [];
   for (const s of r.scores) {
     const job = byId.get(s.id);
@@ -113,10 +220,11 @@ export async function scoreJobs(profile: Profile, jobsIn: Job[], names: Map<numb
       risk: s.risk.trim(),
       contract: s.contract,
       distanceKm: s.distance_km,
-      employerIdentifiable: s.employer_identifiable,
+      employerStatus: s.employer_status,
       hardBlocker: s.hard_blocker.trim(),
     });
   }
+  rec.scored = scored.length;
   scored.sort((a, b) => b.score - a.score);
   return { scored, intro: r.intro.trim(), followups: r.followups.map((f) => f.trim()).filter(Boolean).slice(0, 4) };
 }

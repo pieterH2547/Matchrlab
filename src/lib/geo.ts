@@ -157,6 +157,17 @@ export function geocode(text: string | null | undefined): GeoPoint | null {
   return null;
 }
 
+/** De eerste bekende Belgische plaatsnaam in een tekst, met hoofdletter, of null. */
+export function findPlaceName(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const t = ` ${text.toLowerCase().replace(/[(),/|]/g, " ").replace(/\s+/g, " ")} `;
+  for (const name of NAMES) {
+    if (/^(belgi|belgium|vlaanderen|limburg|oost-vlaanderen|west-vlaanderen|antwerpen-provincie)/.test(name)) continue;
+    if (t.includes(` ${name} `) || t.includes(` ${name}-`) || t.includes(`-${name} `)) return name.replace(/(^|[-\s])\p{L}/gu, (m) => m.toUpperCase());
+  }
+  return null;
+}
+
 export function distanceKm(a: GeoPoint, b: GeoPoint): number {
   const R = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -179,6 +190,44 @@ export function withinRadius(location: string | null | undefined, region: string
   const p = geocode(location);
   if (!p) return null;
   return distanceKm(center, p) <= radiusKm;
+}
+
+/** Middelpunt van de regio: eerst de eigen gemeentelijst, anders de coördinaten uit het profiel (AI), anders null. */
+export function regionCenter(p: { region: string; region_lat?: number; region_lng?: number }): GeoPoint | null {
+  const known = geocode(p.region);
+  if (known) return known;
+  const lat = p.region_lat ?? 0;
+  const lon = p.region_lng ?? 0;
+  // Enkel plausibele Belgische coördinaten aanvaarden.
+  if (lat > 49.4 && lat < 51.6 && lon > 2.4 && lon < 6.5) return { lat, lon };
+  return null;
+}
+
+/** Afstand in km van een punt tot het regiomiddelpunt, of null als een van beide onbekend is. */
+export function distanceFromCenter(center: GeoPoint | null, point: GeoPoint | null): number | null {
+  if (!center || !point) return null;
+  return Math.round(distanceKm(center, point));
+}
+
+/**
+ * Binnen de straal rond het profiel? true/false als beslisbaar, null als de plaats of het middelpunt onbekend is.
+ * Gebruikt de eigen gemeentelijst én de coördinaten uit het profiel.
+ */
+export function withinProfileRadius(
+  location: string | null | undefined,
+  p: { region: string; radius_km: number; region_lat?: number; region_lng?: number },
+): boolean | null {
+  if (/(^|[^a-z])(belgi[eë]|belgium|vlaanderen|flanders|walloni[eë]|nationaal|heel het land)(?![a-z])/i.test(location ?? "")) return null;
+  const center = regionCenter(p);
+  const point = geocode(location);
+  if (!center || !point) return null;
+  return distanceKm(center, point) <= p.radius_km;
+}
+
+/** Belgische postcode (4 cijfers) uit een locatietekst halen, voor weergave en normalisatie. */
+export function extractPostcode(text: string | null | undefined): string | null {
+  const m = (text ?? "").match(/\b([1-9]\d{3})\b/);
+  return m ? m[1] : null;
 }
 
 /** Strikte variant: onbeslisbaar telt als buiten de regio. Voor jobboards, waar een plaats altijd vermeld hoort te staan. */

@@ -61,29 +61,42 @@ function buildSteps(ctx: Ctx): Step[] {
       n: 1,
       title: "Profiel opstellen",
       short: "Cv lezen",
-      what: `${ai} leest het cv (pdf, docx) en je opdracht en maakt functietitels, regio en straal, uitsluitingen, de kandidaat in 3 regels en open vragen.`,
+      what: `${ai} leest het cv en je opdracht: primaire en verwante functietitels, vaardigheden, sectoren, soorten werkgevers, gemeenten binnen de straal, uitsluitingen en harde voorwaarden. Geen woonplaats = Matchr vraagt eerst de regio.`,
       tools: aiTools(ctx, "cheap"),
     },
     {
       n: 2,
-      title: "Jobboards doorzoeken",
-      short: "Jobboards",
-      what: "Zoekt vacatures op functietitel en regio in de jobboards die ingesteld zijn.",
+      title: "Spoor A + C + D · Vacatures zoeken",
+      short: "A+C+D · Vacatures",
+      what: "Tegelijk: jobboards (Google Jobs met paginering, Jooble, Adzuna) op primaire én verwante titels, gerichte Google-zoekopdrachten op VDAB, Indeed, LinkedIn en publieke ATS-pagina's, en OpenAI Web Search die in rondes zelf zoekt en bijstuurt op titels en gemeenten die nog niet aan bod kwamen. Valt een bron uit, dan lopen de andere door.",
       tools: [
         on({ name: "Google Jobs", key: "SERPAPI_API_KEY", test: "googlejobs", domain: "serpapi.com" }),
         on({ name: "Adzuna", key: "ADZUNA_APP_ID", test: "adzuna", domain: "adzuna.be" }),
         on({ name: "Jooble", key: "JOOBLE_API_KEY", test: "jooble", domain: "jooble.org" }),
-        { name: "VDAB", domain: "vdab.be", active: chainActive, note: chainActive ? "via de zoekketen" : "heeft een zoekmachine nodig" },
+        { name: "Google-zoekopdrachten: VDAB, Indeed, LinkedIn, ATS", domain: "vdab.be", active: chainActive, note: chainActive ? "via de zoekketen" : "heeft een zoekmachine nodig" },
+        {
+          name: "OpenAI Web Search",
+          key: "OPENAI_API_KEY",
+          test: "openai-jobs",
+          domain: "openai.com",
+          active: ctx.has("OPENAI_API_KEY") && ctx.value("OPENAI_WEBSEARCH_ENABLED") !== "0",
+          note: ctx.value("OPENAI_WEBSEARCH_ENABLED") === "0" ? "uitgeschakeld" : `max ${ctx.value("OPENAI_WEBSEARCH_ROUNDS") || "3"} rondes · max € ${ctx.value("OPENAI_WEBSEARCH_MAX_EUR") || "0.15"}`,
+        },
       ],
-      rules: ["Plaats buiten de straal of onherkenbaar: weg", "Interim, tijdelijk, bureaus: weg"],
+      rules: [
+        "Plaats buiten de straal of geen bruikbare plaats: weg",
+        "Bevestigd interim, tijdelijk of bureau: weg; onbekend blijft, met 'te verifiëren'",
+        "LinkedIn en Indeed: enkel het zoekresultaat, nooit de pagina",
+        "Een AI-zoekresultaat is geen bewijs: alles gaat door dezelfde controle en scoring",
+      ],
     },
     {
       n: 3,
-      title: "Bedrijven ontdekken",
-      short: "Bedrijven vinden",
-      what: `${ai} bedenkt zoekopdrachten (soort bedrijf + gemeente). Google Maps geeft de lokale werkgevers met hun website; de zoekketen vult aan. Valt een zoekmachine uit, dan neemt de volgende over.`,
+      title: "Spoor B · Werkgevers ontdekken",
+      short: "B · Werkgevers",
+      what: "Google Maps per soort werkgever × gemeente uit het profiel: lokale bedrijven met website en exacte vestiging. Buiten de straal valt weg nog vóór we hun site bezoeken. Aanvullende webzoekopdrachten vullen aan.",
       tools: [...aiTools(ctx, "cheap").filter((t) => t.active), on({ name: "Google Maps", key: "SERPER_API_KEY", domain: "maps.google.com", note: "lokale werkgevers" }), ...chain],
-      rules: ["Enkel gemeenten binnen de straal", "Jobboards, interim-, recruitment- en consultancybureaus: uitgesloten"],
+      rules: ["Vestiging buiten de straal: weg", "Uitzend-, recruitment-, selectie- en detacheringsbureaus: uitgesloten"],
     },
     {
       n: 4,
@@ -111,11 +124,16 @@ function buildSteps(ctx: Ctx): Step[] {
     },
     {
       n: 6,
-      title: "Scoren en filteren",
-      short: "Scoren",
-      what: "Een grove voorselectie, dan een score op 10: kerntaken 3, vaardigheden 3, senioriteit 2, sector 1, mobiliteit 1, met één argument en één risico.",
+      title: "Controleren, scoren en werkgevers kiezen",
+      short: "Controle + score",
+      what: "Dubbels samenvoegen (pagina van de werkgever wint), vacatures controleren (pagina bereikbaar, nog open, echte vacature), dan een score op 10: kerntaken 3, vaardigheden 3, senioriteit 2, sector 1, mobiliteit 1, met argument en risico. Tot slot max 10 interessante werkgevers, ook zonder vacature.",
       tools: aiTools(ctx, "scoring"),
-      rules: ["Minstens 6/10", "Vast contract, eindwerkgever bij naam", "Binnen de straal", "Max 2 per werkgever, max 10 in totaal"],
+      rules: [
+        "Gesloten vacature: weg; onzeker = 'niet geverifieerd'",
+        "Minstens de matchdrempel (standaard 6/10)",
+        "Tijdelijk/interim of bevestigde tussenpersoon: weg; contract of werkgever onbekend: getoond als 'te verifiëren'",
+        "Max 2 per werkgever, max 10 vacatures en 10 werkgevers",
+      ],
     },
   ];
 }
@@ -237,7 +255,7 @@ function FlowMap({ steps }: { steps: Step[] }) {
           );
         })}
         <Arrow />
-        <Endpoint title="Tot 10 vacatures" sub="score, argument, risico" kind="out" />
+        <Endpoint title="10 vacatures + 10 werkgevers" sub="score, controle, risico" kind="out" />
       </div>
     </div>
   );

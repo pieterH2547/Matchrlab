@@ -1,0 +1,1 @@
+ALTER TYPE "public"."job_source" ADD VALUE 'openai_web';

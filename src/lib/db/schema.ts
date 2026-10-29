@@ -26,7 +26,7 @@ export const atsEnum = pgEnum("ats", [
   "none",
 ]);
 
-export const jobSourceEnum = pgEnum("job_source", ["company_site", "vdab", "adzuna", "jooble", "google_jobs", "brave"]);
+export const jobSourceEnum = pgEnum("job_source", ["company_site", "vdab", "adzuna", "jooble", "google_jobs", "brave", "web", "openai_web"]);
 
 export const runStatusEnum = pgEnum("run_status", [
   "profile",
@@ -77,6 +77,11 @@ export const companies = pgTable("companies", {
   lastCrawledAt: timestamp("last_crawled_at", { withTimezone: true }),
   openJobsCount: integer("open_jobs_count").notNull().default(0),
   notes: text("notes"),
+  /** Uit Google Maps (Serper): adres, categorie en coördinaten van de vestiging. */
+  address: text("address"),
+  category: text("category"),
+  lat: real("lat"),
+  lng: real("lng"),
 });
 
 export const jobs = pgTable(
@@ -111,6 +116,8 @@ export const matches = pgTable(
     reason: text("reason").notNull(),
     argument: text("argument"),
     risk: text("risk"),
+    /** actief | niet geverifieerd, met korte reden. Gesloten vacatures worden niet bewaard. */
+    verification: text("verification"),
     rank: integer("rank").notNull(),
   },
   (t) => [uniqueIndex("matches_run_job_idx").on(t.runId, t.jobId)],

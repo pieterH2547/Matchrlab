@@ -6,6 +6,7 @@ import * as cheerio from "cheerio";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getSetting } from "@/lib/settings";
+import { countCall } from "@/lib/usage";
 import { LIMITS } from "@/lib/config";
 
 const UA = "Mozilla/5.0 (compatible; MatchrBot/0.1; +https://recruitrlab.be) Chrome/120 Safari/537.36";
@@ -146,6 +147,7 @@ export async function fetchViaJina(url: string): Promise<string | null> {
   const headers: Record<string, string> = { accept: "text/plain", "x-return-format": "text" };
   const jina = await getSetting("JINA_API_KEY");
   if (jina) headers.authorization = `Bearer ${jina}`;
+  countCall("jina");
   const r = await fetchRaw(`https://r.jina.ai/${url}`, { headers });
   if (r.status !== 200 || r.body.length < LIMITS.minUsefulChars) return null;
   return r.body;
@@ -160,6 +162,7 @@ export async function fetchViaFirecrawl(url: string): Promise<string | null> {
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
   };
+  countCall("firecrawl");
   for (const endpoint of ["https://api.firecrawl.dev/v2/scrape", "https://api.firecrawl.dev/v1/scrape"]) {
     const data = await fetchJson<{ success?: boolean; data?: { markdown?: string } }>(endpoint, init, 25_000);
     const md = data?.data?.markdown;

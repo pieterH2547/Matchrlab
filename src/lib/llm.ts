@@ -8,6 +8,7 @@ import type { z } from "zod";
 import { z as zod } from "zod";
 import { resolveOpenAIModel } from "@/lib/openaiModels";
 import { redactSecrets } from "@/lib/redact";
+import { countCall } from "@/lib/usage";
 import { MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
 import { getSetting } from "@/lib/settings";
 
@@ -92,6 +93,7 @@ function isProviderUnavailable(e: unknown): boolean {
 }
 
 async function anthropicJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
+  countCall("claude");
   const model = MODELS[opts.model ?? "cheap"];
   const res = await (await client()).messages.parse({
     model,
@@ -120,6 +122,7 @@ async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<
   const key = await getSetting("OPENAI_API_KEY");
   if (!key) throw new Error("Er is nog geen OpenAI-key ingesteld. Plak ze in Instellingen (rechtsboven) en start de run opnieuw");
   const model = await resolveOpenAIModel(opts.model === "scoring" ? "scoring" : "cheap");
+  countCall("openai");
   const jsonSchema = zod.toJSONSchema(opts.schema as unknown as zod.ZodType) as Record<string, unknown>;
   delete jsonSchema.$schema;
   const reasoning = /^(gpt-5|o\d)/.test(model);

@@ -66,8 +66,129 @@ export function AdminPanel({ me }: { me: string }) {
           Keys worden versleuteld opgeslagen en nooit meer getoond. Iedereen die aangemeld is kan ze vervangen. Aangemeld als {me}.
         </p>
       </section>
+      <ThresholdLine current={byKey.get("MIN_SCORE")?.value} onChanged={load} />
+      <WebSearchSection byKey={byKey} model={ai?.effective.cheap} onChanged={load} />
       <AdminFlow settings={settings} ai={ai} />
     </div>
+  );
+}
+
+/** OpenAI Web Search: gebruikt de gedeelde OpenAI-key, geen eigen key-veld. */
+function WebSearchSection({ byKey, model, onChanged }: { byKey: Map<string, Setting>; model?: string; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [test, setTest] = useState<(Test & { sample?: string[] }) | null>(null);
+  const [cost, setCost] = useState<string | null>(null);
+  const hasKey = ["admin", "env"].includes(byKey.get("OPENAI_API_KEY")?.source ?? "none");
+  const enabled = byKey.get("OPENAI_WEBSEARCH_ENABLED")?.value !== "0";
+  const rounds = byKey.get("OPENAI_WEBSEARCH_ROUNDS")?.value || "3";
+  const maxEur = byKey.get("OPENAI_WEBSEARCH_MAX_EUR")?.value || "0.15";
+  const chosenModel = byKey.get("OPENAI_WEBSEARCH_MODEL")?.value || model;
+
+  async function put(key: string, value: string) {
+    setBusy(true);
+    await fetch("/api/admin/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, value }) });
+    setBusy(false);
+    await onChanged();
+  }
+  async function runTest() {
+    setTest("busy");
+    try {
+      const res = await fetch("/api/admin/test?tool=openai-jobs", { cache: "no-store" });
+      const data = (await res.json()) as Test & { sample?: string[] };
+      setTest(res.ok ? data : { ok: false, ms: 0, error: (data as { error?: string }).error ?? `HTTP ${res.status}` });
+    } catch {
+      setTest({ ok: false, ms: 0, error: "netwerkfout" });
+    }
+  }
+  const status = !hasKey ? "niet beschikbaar (geen OpenAI-key)" : !enabled ? "uitgeschakeld" : test && test !== "busy" && !test.ok ? "fout" : "actief";
+  const dot = status === "actief" ? "bg-green-600" : status === "fout" ? "bg-red-600" : "bg-gray-300";
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">OpenAI Web Search</h2>
+      <div className="border border-line rounded-xl bg-paper p-4 space-y-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${dot}`} aria-hidden />
+          <span className="font-medium">Status: {status}</span>
+          <span className="text-ink-soft">· key: de gedeelde OpenAI-key · model: <span className="mono">{chosenModel ?? "—"}</span></span>
+        </div>
+        <p className="text-ink-soft">
+          Zoekt zelf in rondes naar vacatures (VDAB, bedrijfssites, ATS-pagina&apos;s, verwante titels, omliggende gemeenten) en stuurt bij op wat nog ontbreekt. Alles wat het vindt gaat door dezelfde controle en scoring.
+        </p>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={enabled} disabled={busy || !hasKey} onChange={(e) => put("OPENAI_WEBSEARCH_ENABLED", e.target.checked ? "1" : "0")} />
+            Ingeschakeld
+          </label>
+          <label className="flex items-center gap-2">
+            Zoekrondes
+            <select value={rounds} disabled={busy} onChange={(e) => put("OPENAI_WEBSEARCH_ROUNDS", e.target.value)} className="border border-line rounded-md px-2 py-1 bg-white">
+              {["1", "2", "3", "4", "5"].map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            Max kosten per run €
+            <input
+              inputMode="decimal"
+              defaultValue={maxEur}
+              onChange={(e) => setCost(e.target.value)}
+              onBlur={() => {
+                const v = (cost ?? "").replace(",", ".").trim();
+                if (v && /^\d+(\.\d+)?$/.test(v) && Number(v) > 0 && Number(v) <= 2) void put("OPENAI_WEBSEARCH_MAX_EUR", v);
+              }}
+              className="w-20 border border-line rounded-md px-2 py-1 bg-white mono"
+            />
+          </label>
+          <button type="button" onClick={runTest} disabled={!hasKey || test === "busy"} className="border border-line rounded-md px-3 py-1 hover:bg-paper-soft disabled:opacity-50">
+            {test === "busy" ? "Testen… (tot 1 min)" : "Testen"}
+          </button>
+        </div>
+        {test && test !== "busy" && (
+          <div className={test.ok ? "text-ok" : "text-warn"}>
+            {test.ok ? `Werkt · ${test.count ?? 0} vacatures in ${Math.round(test.ms / 1000)} s` : `Fout: ${test.error ?? "onbekend"}`}
+            {test.sample?.length ? (
+              <ul className="mt-1 text-xs text-ink-soft">
+                {test.sample.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ThresholdLine({ current, onChanged }: { current?: string; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const value = current && /^\d+$/.test(current) ? current : "6";
+  async function change(v: string) {
+    setBusy(true);
+    await fetch("/api/admin/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "MIN_SCORE", value: v }) });
+    setBusy(false);
+    await onChanged();
+  }
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Matching</h2>
+      <div className="border border-line rounded-xl bg-paper p-4 flex flex-wrap items-center gap-3">
+        <label htmlFor="min-score" className="font-medium">
+          Matchdrempel
+        </label>
+        <select id="min-score" value={value} disabled={busy} onChange={(e) => change(e.target.value)} className="border border-line rounded-md px-2 py-1.5 text-sm bg-white">
+          {["4", "5", "6", "7", "8"].map((v) => (
+            <option key={v} value={v}>
+              {v}/10
+            </option>
+          ))}
+        </select>
+        <span className="text-sm text-ink-soft">Vacatures onder deze score worden niet getoond. Standaard 6.</span>
+      </div>
+    </section>
   );
 }
 
