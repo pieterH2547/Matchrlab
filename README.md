@@ -45,7 +45,7 @@ Zie `.env.example`. Lokaal in `.env.local`, op Vercel onder Settings → Environ
 
 ```bash
 npm run db:generate   # nieuwe migratie na een schema-wijziging in src/lib/db/schema.ts
-npm run db:migrate    # migraties uitvoeren tegen DATABASE_URL (eenmalig vóór de eerste deploy)
+npm run db:migrate    # lokaal; op Vercel draait dit automatisch bij elke build (scripts/migrate-if-configured.mjs)
 ```
 
 Tabellen: `runs`, `messages`, `companies`, `jobs`, `matches`, `page_cache` (TTL 7 dagen), `usage_counters` (Brave-teller per maand). `runs.state` bevat de stapvoortgang en cursors zodat een run hervat kan worden.
