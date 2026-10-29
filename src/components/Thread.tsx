@@ -240,6 +240,8 @@ function sourceLabel(source: MatchView["source"]): { text: string; cls: string }
       return { text: "VDAB", cls: "bg-paper-soft text-ink-soft" };
     case "adzuna":
       return { text: "Adzuna", cls: "bg-paper-soft text-ink-soft" };
+    case "jooble":
+      return { text: "Jooble", cls: "bg-paper-soft text-ink-soft" };
     default:
       return { text: "Web", cls: "bg-paper-soft text-ink-soft" };
   }

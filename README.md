@@ -46,16 +46,27 @@ Enkel `DATABASE_URL` en `APP_PASSWORD` moeten in Vercel staan; al de rest kan vi
 
 ### Zoekmachine
 
-Bedrijfsontdekking en de VDAB-zoektocht gebruiken één zoeklaag (`src/lib/search.ts`) met drie providers, te kiezen onder `SEARCH_PROVIDER`:
+Bedrijfsontdekking, VDAB en de fallback bij jobpagina's gebruiken één zoekketen (`src/lib/search.ts`). Elke provider met
+een key wordt in volgorde geprobeerd; faalt er één (geen key, limiet op, HTTP-fout), dan gaat hij 10 minuten in afkoeling
+en neemt de volgende over.
 
-| Provider | Key nodig | Limiet | Opmerking |
+| Provider | Key | Gratis | Opmerking |
 | --- | --- | --- | --- |
-| `anthropic` | enkel `ANTHROPIC_API_KEY` | ±$0,01 per zoekopdracht | ingebouwde web search van de Anthropic API; standaard als er geen Brave/Google-key is |
-| `duckduckgo` | nee | — | blokkeert Vercel-servers (403); enkel bruikbaar lokaal |
-| `google` | `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | 100 queries/dag gratis | Custom Search JSON API, Programmable Search Engine op "hele web" |
-| `brave` | `BRAVE_SEARCH_API_KEY` | 2000 queries/maand gratis | maandteller in `usage_counters` |
+| Linkup | `LINKUP_API_KEY` | ±4.000 zoekopdrachten/maand met professioneel e-mailadres | eerste keuze |
+| Tavily | `TAVILY_API_KEY` | 1.000 credits/maand | |
+| Exa | `EXA_API_KEY` | ±$10/maand | |
+| Brave | `BRAVE_SEARCH_API_KEY` | $5 tegoed/maand, kaart nodig | optioneel |
+| Claude web search | `ANTHROPIC_API_KEY` | betalend, ±$0,01/zoekopdracht | vangnet |
 
-`auto` (standaard) kiest Brave als die key er is, anders Google, anders Anthropic web search, anders DuckDuckGo.
+`SEARCH_PROVIDER` = auto (standaard) volgt deze volgorde; een vaste keuze zet die provider vooraan.
+Google Custom Search is gesloten voor nieuwe klanten (sinds 20 januari 2026, stopt 1 januari 2027); DuckDuckGo blokkeert Vercel.
+
+### Vacaturebronnen en pagina's lezen
+
+Adzuna en Jooble (`JOOBLE_API_KEY`, key per landendomein, voor België via be.jooble.org) als jobboards; publieke ATS-feeds
+zonder key; pagina's via gewone fetch, dan Jina Reader, dan Firecrawl (`FIRECRAWL_API_KEY`, 1.000 credits/maand gratis).
+
+In Instellingen staat de flow per stap met de status van elke tool en een testknop.
 
 ## Omgevingsvariabelen
 

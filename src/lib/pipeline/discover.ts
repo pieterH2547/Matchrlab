@@ -67,7 +67,7 @@ export function domainsFromResults(urls: string[], exclude: Set<string> = new Se
 }
 
 export async function discoverCompanies(profile: Profile, meter: CostMeter, opts: { exclude?: Set<string>; maxQueries?: number } = {}): Promise<DiscoveryResult> {
-  if (!searchAvailable()) {
+  if (!searchAvailable() || (await resolveProvider()) === "geen") {
     return { domains: [], queries: [], braveQueries: 0, note: "Geen zoekmachine beschikbaar; bedrijfsontdekking overgeslagen." };
   }
   const queries = (await generateDiscoveryQueries(profile, meter)).slice(0, opts.maxQueries ?? 8);
@@ -87,7 +87,6 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
   const provider = await resolveProvider();
   let note: string | undefined;
   if (limitHit) note = `Zoeklimiet van ${provider} bereikt; minder bedrijven ontdekt.`;
-  else if (braveQueries > 0 && urls.length === 0 && provider === "duckduckgo")
-    note = "DuckDuckGo blokkeert zoekopdrachten vanaf de server. Zet de zoekmachine op auto of vul een Brave- of Google-key in via Instellingen.";
+  else if (provider === "geen") note = "Geen zoekmachine ingesteld; bedrijfsontdekking overgeslagen. Vul Linkup, Tavily of Exa in via Instellingen.";
   return { domains, queries, braveQueries, note };
 }

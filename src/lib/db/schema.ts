@@ -26,7 +26,7 @@ export const atsEnum = pgEnum("ats", [
   "none",
 ]);
 
-export const jobSourceEnum = pgEnum("job_source", ["company_site", "vdab", "adzuna", "brave"]);
+export const jobSourceEnum = pgEnum("job_source", ["company_site", "vdab", "adzuna", "jooble", "brave"]);
 
 export const runStatusEnum = pgEnum("run_status", [
   "profile",

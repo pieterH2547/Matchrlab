@@ -11,12 +11,15 @@ import { env } from "@/lib/env";
 
 export const SECRET_KEYS = [
   "ANTHROPIC_API_KEY",
+  "LINKUP_API_KEY",
+  "TAVILY_API_KEY",
+  "EXA_API_KEY",
   "BRAVE_SEARCH_API_KEY",
-  "GOOGLE_API_KEY",
-  "GOOGLE_CSE_ID",
   "ADZUNA_APP_ID",
   "ADZUNA_APP_KEY",
+  "JOOBLE_API_KEY",
   "JINA_API_KEY",
+  "FIRECRAWL_API_KEY",
 ] as const;
 export const CONFIG_KEYS = ["SEARCH_PROVIDER", "ANTHROPIC_MONTHLY_BUDGET_EUR"] as const;
 
@@ -26,12 +29,15 @@ export type SettingKey = SecretKey | ConfigKey;
 
 export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url?: string; required?: boolean; options?: string[] }> = {
   ANTHROPIC_API_KEY: { label: "Anthropic API-key", help: "Haiku en Sonnet. Zonder deze key doet Matchr niets.", url: "https://console.anthropic.com/settings/keys", required: true },
-  SEARCH_PROVIDER: { label: "Zoekmachine", help: "auto = Brave als die key er is, anders Google, anders Claude web search (zelfde key als de modellen, ±€0,01 per zoekopdracht). DuckDuckGo werkt niet vanaf Vercel.", options: ["auto", "anthropic", "google", "brave", "duckduckgo"] },
-  GOOGLE_API_KEY: { label: "Google API-key", help: "Custom Search JSON API; gratis tot 100 zoekopdrachten per dag.", url: "https://console.cloud.google.com/apis/credentials" },
-  GOOGLE_CSE_ID: { label: "Google zoekmachine-ID (cx)", help: "Programmable Search Engine die het hele web doorzoekt.", url: "https://programmablesearchengine.google.com/controlpanel/all" },
-  BRAVE_SEARCH_API_KEY: { label: "Brave Search API-key", help: "Gratis tier, 2000 zoekopdrachten per maand.", url: "https://api-dashboard.search.brave.com/app/keys" },
+  SEARCH_PROVIDER: { label: "Zoekmachine vooraan", help: "auto = Linkup, dan Tavily, dan Exa, dan Brave, dan Claude web search (±€0,01 per zoekopdracht). Is er één op of kapot, dan neemt de volgende over.", options: ["auto", "linkup", "tavily", "exa", "brave", "anthropic"] },
+  LINKUP_API_KEY: { label: "Linkup API-key", help: "Gratis ±4.000 zoekopdrachten per maand met een professioneel e-mailadres. Eerste keuze.", url: "https://app.linkup.so" },
+  TAVILY_API_KEY: { label: "Tavily API-key", help: "Gratis 1.000 credits per maand, geen kaart nodig.", url: "https://app.tavily.com" },
+  EXA_API_KEY: { label: "Exa API-key", help: "Gratis ±$10 per maand, geen kaart nodig.", url: "https://dashboard.exa.ai/api-keys" },
+  BRAVE_SEARCH_API_KEY: { label: "Brave Search API-key", help: "$5 tegoed per maand, kaart nodig. Optioneel.", url: "https://api-dashboard.search.brave.com/app/keys" },
   ADZUNA_APP_ID: { label: "Adzuna app-ID", help: "Jobboard-bron. Optioneel.", url: "https://developer.adzuna.com/admin/access_details" },
   ADZUNA_APP_KEY: { label: "Adzuna app-key", help: "Hoort bij het Adzuna app-ID." },
+  JOOBLE_API_KEY: { label: "Jooble API-key", help: "Gratis vacature-API. Vraag een key aan voor België (be.jooble.org).", url: "https://be.jooble.org/api/about" },
+  FIRECRAWL_API_KEY: { label: "Firecrawl API-key", help: "Gratis 1.000 credits per maand. Leest jobsites die Jina niet krijgt.", url: "https://www.firecrawl.dev/app/api-keys" },
   JINA_API_KEY: { label: "Jina Reader API-key", help: "Optioneel; werkt ook zonder, met lagere limieten.", url: "https://jina.ai/reader" },
   ANTHROPIC_MONTHLY_BUDGET_EUR: { label: "Maandbudget (€)", help: "Boven dit bedrag weigert Matchr nieuwe runs." },
 };

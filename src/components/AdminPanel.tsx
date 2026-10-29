@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AdminFlow } from "./AdminFlow";
 
 type Setting = {
   key: string;
@@ -18,8 +19,9 @@ type Setting = {
 
 const GROUPS: { title: string; keys: string[] }[] = [
   { title: "Verplicht", keys: ["ANTHROPIC_API_KEY"] },
-  { title: "Zoeken op het web (bedrijven ontdekken)", keys: ["SEARCH_PROVIDER", "GOOGLE_API_KEY", "GOOGLE_CSE_ID", "BRAVE_SEARCH_API_KEY"] },
-  { title: "Optioneel", keys: ["ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JINA_API_KEY", "ANTHROPIC_MONTHLY_BUDGET_EUR"] },
+  { title: "Zoeken op het web (bedrijven ontdekken)", keys: ["SEARCH_PROVIDER", "LINKUP_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "BRAVE_SEARCH_API_KEY"] },
+  { title: "Vacaturebronnen", keys: ["ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY"] },
+  { title: "Pagina's lezen en budget", keys: ["JINA_API_KEY", "FIRECRAWL_API_KEY", "ANTHROPIC_MONTHLY_BUDGET_EUR"] },
 ];
 
 export function AdminPanel({ me }: { me: string }) {
@@ -77,10 +79,11 @@ export function AdminPanel({ me }: { me: string }) {
   return (
     <div className="space-y-10">
       <div className="rounded-lg border border-line bg-paper-soft px-4 py-3 text-sm">
-        Actieve zoekmachine: <span className="font-medium">{provider}</span>
-        {provider === "anthropic" && <span className="text-ink-soft"> — Claude zoekt zelf, via je Anthropic-key (±€0,01 per zoekopdracht). Plak een Brave-key voor gratis zoeken.</span>}
-        {provider === "duckduckgo" && <span className="text-ink-soft"> — werkt niet vanaf Vercel. Zet de zoekmachine op auto.</span>}
+        Zoekmachine vooraan: <span className="font-medium">{provider}</span>
+        {provider === "anthropic" && <span className="text-ink-soft"> — enkel Claude web search (±€0,01 per zoekopdracht). Vul Linkup, Tavily of Exa in om gratis te zoeken.</span>}
+        {provider === "geen" && <span className="text-ink-soft"> — er is geen enkele zoekmachine ingesteld.</span>}
       </div>
+      <AdminFlow settings={settings} />
       {GROUPS.map((g) => (
         <section key={g.title}>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">{g.title}</h2>

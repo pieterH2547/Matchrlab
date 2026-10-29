@@ -151,6 +151,24 @@ export async function fetchViaJina(url: string): Promise<string | null> {
   return r.body;
 }
 
+/** Firecrawl: rendert zware JS-sites tot markdown. Enkel als er een key is en Jina faalde. */
+export async function fetchViaFirecrawl(url: string): Promise<string | null> {
+  const key = await getSetting("FIRECRAWL_API_KEY");
+  if (!key) return null;
+  const init = {
+    method: "POST",
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+  };
+  for (const endpoint of ["https://api.firecrawl.dev/v2/scrape", "https://api.firecrawl.dev/v1/scrape"]) {
+    const data = await fetchJson<{ success?: boolean; data?: { markdown?: string } }>(endpoint, init);
+    const md = data?.data?.markdown;
+    if (md && md.length >= LIMITS.minUsefulChars) return md;
+    if (data) return null;
+  }
+  return null;
+}
+
 export function isUsefulText(text: string): boolean {
   return text.replace(/\s+/g, " ").trim().length >= LIMITS.minUsefulChars;
 }
@@ -184,6 +202,10 @@ export async function fetchPage(url: string, opts: { allowJina?: boolean; noCach
   if (opts.allowJina && r.status !== 404 && !isUsefulText(text)) {
     const jina = await fetchViaJina(url);
     if (jina) text = jina;
+    if (!isUsefulText(text)) {
+      const fc = await fetchViaFirecrawl(url);
+      if (fc) text = fc;
+    }
   }
   await writeCache(url, r.status, text).catch(() => undefined);
   return { url, finalUrl: r.finalUrl, status: r.status, html, text, links, fromCache: false };

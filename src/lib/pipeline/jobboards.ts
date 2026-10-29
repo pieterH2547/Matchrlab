@@ -96,9 +96,51 @@ function guessCompany(title: string): string {
   return m?.[1]?.trim() ?? "";
 }
 
+type JoobleJob = { id?: string | number; title?: string; location?: string; snippet?: string; source?: string; type?: string; link?: string; company?: string; updated?: string };
+
+/** Jooble-straal kent enkel vaste waarden (km). */
+function joobleRadius(km: number): string {
+  const allowed = [0, 4, 8, 16, 26, 40, 80];
+  return String(allowed.find((r) => r >= km) ?? 80);
+}
+
+/**
+ * Jooble: gratis vacature-API (aggregator). Key per landendomein; voor België aangevraagd via be.jooble.org.
+ * We proberen eerst het Belgische domein, dan het algemene endpoint.
+ */
+export async function searchJooble(profile: Profile): Promise<NormalizedJob[]> {
+  const key = await getSetting("JOOBLE_API_KEY");
+  if (!key) return [];
+  const out: NormalizedJob[] = [];
+  await Promise.all(
+    profile.job_titles.slice(0, 3).map(async (keywords) => {
+      const body = JSON.stringify({ keywords, location: profile.region, radius: joobleRadius(profile.radius_km), page: 1, ResultOnPage: 30 });
+      const init = { method: "POST", headers: { "content-type": "application/json" }, body };
+      let data = await fetchJson<{ jobs?: JoobleJob[] }>(`https://be.jooble.org/api/${encodeURIComponent(key)}`, init);
+      if (!data) data = await fetchJson<{ jobs?: JoobleJob[] }>(`https://jooble.org/api/${encodeURIComponent(key)}`, init);
+      for (const j of data?.jobs ?? []) {
+        if (!j.link || !j.title) continue;
+        // "Interim" of "tijdelijk" in het contracttype: meteen weg.
+        if (/interim|tijdelijk|temporary|freelance|uitzend/i.test(j.type ?? "")) continue;
+        out.push({
+          source: "jooble",
+          externalId: j.id !== undefined ? String(j.id) : undefined,
+          url: j.link,
+          title: j.title.replace(/<[^>]+>/g, "").trim(),
+          location: j.location ?? "",
+          descriptionText: (j.snippet ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+          companyName: (j.company ?? "").trim(),
+          raw: { id: j.id, type: j.type, source: j.source, updated: j.updated },
+        });
+      }
+    }),
+  );
+  return out.slice(0, LIMITS.maxJobsPerBoard);
+}
+
 export async function searchJobboards(profile: Profile): Promise<JobboardResult> {
   const notes: string[] = [];
-  const [adzuna, vdab] = await Promise.all([
+  const [adzuna, vdab, jooble] = await Promise.all([
     searchAdzuna(profile).catch(() => {
       notes.push("Adzuna gaf een fout.");
       return [] as NormalizedJob[];
@@ -107,7 +149,12 @@ export async function searchJobboards(profile: Profile): Promise<JobboardResult>
       notes.push("VDAB-zoekopdracht gaf een fout.");
       return { jobs: [] as NormalizedJob[], queries: 0 };
     }),
+    searchJooble(profile).catch(() => {
+      notes.push("Jooble gaf een fout.");
+      return [] as NormalizedJob[];
+    }),
   ]);
   if (!(await getSetting("ADZUNA_APP_ID"))) notes.push("Adzuna niet geconfigureerd.");
-  return { jobs: [...vdab.jobs, ...adzuna], notes, braveQueries: vdab.queries };
+  if (!(await getSetting("JOOBLE_API_KEY"))) notes.push("Jooble niet geconfigureerd.");
+  return { jobs: [...vdab.jobs, ...adzuna, ...jooble], notes, braveQueries: vdab.queries };
 }
