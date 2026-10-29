@@ -15,6 +15,13 @@
       "when": 1793286985661,
       "tag": "0001_legal_jazinda",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793289059874,
+      "tag": "0002_bent_bulldozer",
+      "breakpoints": true
     }
   ]
 }

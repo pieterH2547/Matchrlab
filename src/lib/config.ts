@@ -22,6 +22,10 @@ export const USD_TO_EUR = 0.92;
 export const LIMITS = {
   /** Vacatures onder deze score worden niet getoond. */
   minScoreToShow: 60,
+  /** Max werkgevers in de shortlist (spoor A + B samen). */
+  maxEmployers: 5,
+  /** Max werkgevers die we nagaan op een hiring-signaal (spoor B). */
+  maxSignalChecks: 9,
   /** Max unieke bedrijfsdomeinen per run (stap 3). */
   maxDomainsPerRun: 80,
   /** Max detailpagina's per bedrijf (stap 5). */
@@ -51,7 +55,6 @@ export const LIMITS = {
 } as const;
 
 /** Bonus voor vacatures die rechtstreeks van de bedrijfssite komen. */
-export const COMPANY_SITE_BONUS = 5;
 
 /** Standaardpaden waar bedrijven hun vacatures zetten (stap 4b). */
 export const STANDARD_JOB_PATHS = [

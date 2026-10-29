@@ -29,7 +29,7 @@ export function Sidebar({ index, me, activeThreadId, onOpen }: { index: RunsInde
   }, [index, q]);
 
   return (
-    <aside className="w-full md:w-[300px] shrink-0 border-t md:border-t-0 md:border-l border-line bg-sidebar flex flex-col md:max-h-[calc(100vh-56px)]">
+    <aside className="w-full md:w-[300px] shrink-0 border-b md:border-b-0 md:border-r border-line bg-sidebar flex flex-col md:max-h-[calc(100vh-56px)]">
       <div className="p-4 border-b border-line">
         <h2 className="font-medium mb-2">Runs</h2>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Zoek op kandidaat of functie" className="w-full text-sm bg-paper border border-line rounded-md px-2.5 py-1.5 focus:outline-none focus:border-accent" />

@@ -123,6 +123,8 @@ export async function matchesForRun(runId: number): Promise<MatchView[]> {
     url: j.url,
     source: j.source,
     firstSeenAt: j.firstSeenAt.toISOString(),
+    argument: m.argument ?? m.reason,
+    risk: m.risk ?? "",
   }));
 }
 

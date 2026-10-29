@@ -1,9 +1,9 @@
 /**
  * Stap 6: dedupliceren, Haiku-voorselectie over alles, top-30 naar Sonnet
- * voor score 0-100 + één zin reden. +5 voor company_site.
+ * voor een score op 10 volgens de RecruitrLAB-verdeling, met argument en risico.
  */
 import { llmJson, type CostMeter } from "@/lib/llm";
-import { COMPANY_SITE_BONUS, LIMITS } from "@/lib/config";
+import { LIMITS } from "@/lib/config";
 import type { Job } from "@/lib/db/schema";
 import { PreselectSchema, ScoringSchema, type Profile } from "./types";
 
@@ -15,21 +15,38 @@ Bij functie-inhoud mag je ruim zijn: twijfel = meenemen. Laat enkel weg wat duid
 Laat ook vacatures weg die door een tussenpersoon geplaatst zijn (interimkantoor, recruitmentbureau,
 consultancy- of detacheringsbedrijf dat "voor een klant" zoekt): we willen enkel rechtstreekse werkgevers.`;
 
-const SCORE_SYSTEM = `Je bent een senior recruiter bij een Vlaams recruitmentbureau. Je krijgt een kandidaatprofiel en een
-genummerde lijst vacatures. Geef per vacature een score van 0 tot 100 en één zin in het Nederlands waarom dit
-past of niet. Beoordeel op: functie-inhoud, vereiste ervaring vs. senioriteit, regio en straal, uitsluitingen,
-type werkgever. Regio is hard: buiten de straal = score maximaal 15, en zeg dat in de reden. Een vacature van een tussenpersoon (interim, recruitmentbureau, consultancy "voor een klant") scoort
-maximaal 20 en de reden vermeldt dat. Vacatures die rechtstreeks van de bedrijfssite komen zijn vaak actueler; dat is al in een bonus verrekend,
-weeg dat niet opnieuw. Schrijf de reden informeel (je/jij), zonder "u", concreet en kort.
+const SCORE_SYSTEM = `Je bent een senior recruiter bij RecruitrLAB (Vlaanderen). Je krijgt een kandidaatprofiel en een
+genummerde lijst vacatures. Scoor elke vacature zonder schijnzekerheid volgens deze verdeling (totaal 10):
+- kerntaken 0-3: komen de kerntaken overeen met wat de kandidaat aantoonbaar deed?
+- vaardigheden 0-3: vaardigheden, opleiding, talen, attesten.
+- senioriteit 0-2: vereiste ervaring vs. die van de kandidaat.
+- sector 0-1: zelfde sector of duidelijk overdraagbaar.
+- mobiliteit 0-1: realistische pendel binnen de opgegeven straal. Buiten de straal = 0.
+Bij een onbekende harde vereiste geef je geen automatische positieve punten.
 
-Wees streng: 60+ betekent "deze vacature zou ik de kandidaat echt voorleggen". Alles daaronder wordt niet getoond.
-Schrijf de intro over de vacatures die 60 of meer scoren, niet over de rest.
+Vul ook in:
+- contract: vast / tijdelijk / interim / freelance / onbekend, enkel op basis van wat in de vacature staat.
+- employer_identifiable: false als de eindwerkgever niet bij naam bekend is (bureau, "voor onze klant", anoniem).
+- hard_blocker: een bewezen harde eis (licentie, diploma, attest, taal) die de kandidaat aantoonbaar niet heeft; anders lege string.
+- argument: één concreet matchargument; risk: één concreet risico. Kort, informeel (je/jij), geen "u".
+
+Een search snippet is geen bewijs van een open vacature of van een vast contract: twijfel = "onbekend".
 
 Geef ook:
-- intro: één zin voor de collega, bv. "Ik vond 14 vacatures rond Mechelen; de beste drie zitten in de chemie."
-- followups: 2 tot 4 korte vervolgvragen als klikbare pillen, bv. "Zoek verder in Limburg", "Laat ploegenwerk weg", "Waarom scoort X laag?".`;
+- intro: één zin voor de recruiter over de vacatures die 6/10 of meer halen, niet over de rest.
+- followups: 2 tot 4 korte vervolgvragen als klikbare pillen, bv. "Zoek verder in Limburg", "Laat ploegenwerk weg".`;
 
-export type ScoredJob = { job: Job; score: number; reason: string };
+export type ScoredJob = {
+  job: Job;
+  /** 0-100 = score op 10 × 10, zodat de bestaande kolom en ondergrens werken. */
+  score: number;
+  reason: string;
+  argument: string;
+  risk: string;
+  contract: "vast" | "tijdelijk" | "interim" | "freelance" | "onbekend";
+  employerIdentifiable: boolean;
+  hardBlocker: string;
+};
 
 export type ScoreResult = { scored: ScoredJob[]; intro: string; followups: string[] };
 
@@ -49,6 +66,7 @@ function profileBlock(profile: Profile): string {
       straal_km: profile.radius_km,
       uitsluitingen: profile.exclusions,
       type_werkgever: profile.employer_type,
+      harde_kwalificaties: profile.hard_requirements ?? [],
     },
     null,
     1,
@@ -82,8 +100,17 @@ export async function scoreJobs(profile: Profile, jobsIn: Job[], names: Map<numb
   for (const s of r.scores) {
     const job = byId.get(s.id);
     if (!job) continue;
-    const bonus = job.source === "company_site" ? COMPANY_SITE_BONUS : 0;
-    scored.push({ job, score: Math.max(0, Math.min(100, s.score + bonus)), reason: s.reason.trim() });
+    const total = s.kerntaken + s.vaardigheden + s.senioriteit + s.sector + s.mobiliteit;
+    scored.push({
+      job,
+      score: Math.max(0, Math.min(10, total)) * 10,
+      reason: s.argument.trim(),
+      argument: s.argument.trim(),
+      risk: s.risk.trim(),
+      contract: s.contract,
+      employerIdentifiable: s.employer_identifiable,
+      hardBlocker: s.hard_blocker.trim(),
+    });
   }
   scored.sort((a, b) => b.score - a.score);
   return { scored, intro: r.intro.trim(), followups: r.followups.map((f) => f.trim()).filter(Boolean).slice(0, 4) };

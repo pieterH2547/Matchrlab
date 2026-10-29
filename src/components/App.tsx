@@ -126,6 +126,7 @@ export function App({ me }: { me: string }) {
     <div className="min-h-screen flex flex-col">
       <Topbar onNewRun={newRun} onToggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} />
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {sidebarOpen && <Sidebar index={index} me={me} activeThreadId={threadId} onOpen={openThread} />}
         <main className="flex-1 flex flex-col min-w-0">
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
             <div className="mx-auto w-full max-w-[760px] py-8">
@@ -136,7 +137,6 @@ export function App({ me }: { me: string }) {
           </div>
           <Composer busy={busy} followup={Boolean(latest?.profile)} onSubmit={(text, file) => submit({ text, file })} />
         </main>
-        {sidebarOpen && <Sidebar index={index} me={me} activeThreadId={threadId} onOpen={openThread} />}
       </div>
     </div>
   );

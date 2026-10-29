@@ -190,6 +190,6 @@ export async function fetchPage(url: string, opts: { allowJina?: boolean; noCach
 }
 
 /** Beperkt paginatekst tot wat we aan het model durven geven. */
-export function clampText(text: string, max = LIMITS.maxPageChars): string {
+export function clampText(text: string, max: number = LIMITS.maxPageChars): string {
   return text.length <= max ? text : `${text.slice(0, max)}\n[...afgekapt...]`;
 }

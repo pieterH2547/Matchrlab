@@ -27,6 +27,16 @@ Code: `src/lib/pipeline/` (één bestand per stap, elk met input/output-types), 
 
 De officiële VDAB-vacature-API vereist partnerregistratie op developer.vdab.be (IBM API Connect) en is niet publiek; de data mag bovendien enkel ongewijzigd herpubliceerd worden. Tot die toegang er is zoekt Matchr VDAB-vacatures via Brave met `site:vdab.be/vindeenjob`, wat per run 2 queries kost en enkel titel, url en snippet oplevert. Een echte VDAB-adapter hoort in `src/lib/pipeline/jobboards.ts` naast Adzuna.
 
+## Methode (Reverse Recruitment 3.0)
+
+Een run levert: de kandidaat in 3 regels (met onzekerheden en mandaatstatus), max 5 werkgevers verdeeld over
+spoor A (open vacature bij een identificeerbare eindwerkgever, vast contract, score ≥ 6/10 op kerntaken 3 /
+vaardigheden 3 / senioriteit 2 / sector 1 / mobiliteit 1, met argument en risico) en spoor B (PROACTIEF: gedateerd
+hiring-signaal met bron, geen vacature bevestigd), max 3 acties met drafts (≤ 110 woorden, geen identificerende
+kandidaatgegevens), max 3 open vragen en een KPI-regel. Interim, freelance, tijdelijk, bureaus en harde blokkades
+vallen weg. Er is nog geen Outlook/CRM-koppeling: elke actie heet RELATIECHECK NOG NODIG, drafts worden nergens
+opgeslagen en nooit verzonden.
+
 ## Toegang
 
 Collega's geven enkel hun naam (voor "wie deed welke run"); er is geen wachtwoord om Matchr te gebruiken. Enkel `/admin` vraagt het teamwachtwoord (`APP_PASSWORD`), omdat daar de API-keys staan. Wie de URL kent kan dus runs starten; het maandbudget begrenst de schade.

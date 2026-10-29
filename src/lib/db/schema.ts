@@ -34,6 +34,7 @@ export const runStatusEnum = pgEnum("run_status", [
   "discover",
   "crawl",
   "score",
+  "signals",
   "done",
   "failed",
 ]);
@@ -108,6 +109,8 @@ export const matches = pgTable(
       .notNull(),
     score: integer("score").notNull(),
     reason: text("reason").notNull(),
+    argument: text("argument"),
+    risk: text("risk"),
     rank: integer("rank").notNull(),
   },
   (t) => [uniqueIndex("matches_run_job_idx").on(t.runId, t.jobId)],

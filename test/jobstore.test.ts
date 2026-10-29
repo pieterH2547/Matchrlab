@@ -13,6 +13,11 @@ const profile: Profile = {
   exclusions: ["nachtwerk"],
   employer_type: "",
   search_queries: ["procesoperator Mechelen"],
+  positioning: [],
+  uncertainties: [],
+  open_questions: [],
+  consent: "onbekend",
+  hard_requirements: [],
 };
 
 describe("normalizeUrl", () => {

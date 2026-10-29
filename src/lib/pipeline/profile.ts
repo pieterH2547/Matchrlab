@@ -12,12 +12,17 @@ en maakt daar een zoekprofiel van voor een vacaturezoektocht in België.
 Regels:
 - Functietitels: 3 tot 5 Nederlandstalige titels en synoniemen die werkgevers echt gebruiken (bv. "procesoperator", "productieoperator", "operator chemie").
 - Regio: leid de woonplaats af uit het cv; de vrije tekst van de collega overschrijft het cv altijd.
-- Straal: standaard 25 km, pas aan als het cv of de opdracht iets anders zegt.
+- Straal: standaard 30 km, pas aan als het cv of de opdracht iets anders zegt. Leid geen woonplaats af zonder bewijs in het cv.
 - Uitsluitingen: wat de kandidaat of collega expliciet niet wil (ploegen, nachtwerk, interim, ...). Verzin er geen.
 - Senioriteit: totaal aantal jaren relevante ervaring, afgerond.
 - search_queries: 6 tot 8 concrete zoekqueries in het Nederlands zoals je ze op een jobboard zou intikken, elk met een functietitel en meestal een plaats of regio. Geen uitsluitingen in de query.
 - Als de vrije tekst en het cv elkaar tegenspreken, volg de vrije tekst.
-- Nooit velden verzinnen die niet uit cv of tekst volgen; gebruik dan een lege string of lege lijst.`;
+- Nooit velden verzinnen die niet uit cv of tekst volgen; gebruik dan een lege string of lege lijst.
+- positioning: max 3 korte regels in natuurlijk Vlaams: (1) doelrol + senioriteit, (2) max 3 bewezen sterktes, (3) sector/overdraagbaarheid + regio/pendel.
+- uncertainties: de 2-3 belangrijkste onzekerheden, telkens beginnend met "AANNAME:" of "ONBEKEND:" (bv. contracttype, beschikbaarheid, loonverwachting, mobiliteit, talen).
+- open_questions: max 3 beslissende open vragen aan de kandidaat. Geen batterij intakevragen.
+- consent: "bevestigd" enkel als cv of opdracht expliciet zegt dat de kandidaat akkoord is met voorstelling bij werkgevers; anders "onbekend".
+- hard_requirements: diploma's, licenties en attesten die de kandidaat aantoonbaar heeft (bv. VCA, rijbewijs C, bachelor chemie).`;
 
 export async function buildProfile(input: ProfileInput, meter: CostMeter): Promise<Profile> {
   const previous = input.previousProfile
@@ -39,7 +44,12 @@ export function normalizeProfile(p: Profile): Profile {
     exclusions: dedupe(p.exclusions).slice(0, 10),
     search_queries: dedupe(p.search_queries).slice(0, 8),
     region: p.region.trim() || "Vlaanderen",
-    radius_km: Math.min(150, Math.max(5, Math.round(p.radius_km || 25))),
+    radius_km: Math.min(150, Math.max(5, Math.round(p.radius_km || 30))),
+    positioning: (p.positioning ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3),
+    uncertainties: (p.uncertainties ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3),
+    open_questions: (p.open_questions ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 3),
+    consent: p.consent ?? "onbekend",
+    hard_requirements: dedupe(p.hard_requirements ?? []).slice(0, 6),
   };
 }
 
