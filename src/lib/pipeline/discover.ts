@@ -78,5 +78,10 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
     for (const r of results) urls.push(r.url);
   }
   const domains = domainsFromResults(urls, opts.exclude);
-  return { domains, queries, braveQueries, note: limitHit ? `Zoeklimiet van ${await resolveProvider()} bereikt; minder bedrijven ontdekt.` : undefined };
+  const provider = await resolveProvider();
+  let note: string | undefined;
+  if (limitHit) note = `Zoeklimiet van ${provider} bereikt; minder bedrijven ontdekt.`;
+  else if (braveQueries > 0 && urls.length === 0 && provider === "duckduckgo")
+    note = "DuckDuckGo blokkeert zoekopdrachten vanaf de server. Vul een Brave- of Google-key in via Instellingen om bedrijven te ontdekken.";
+  return { domains, queries, braveQueries, note };
 }
