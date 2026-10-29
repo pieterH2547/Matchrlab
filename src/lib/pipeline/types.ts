@@ -161,6 +161,10 @@ export type RunState = {
   verifyCache?: Record<string, { status: "actief" | "gesloten" | "niet geverifieerd"; reason: string }>;
   /** Fast Search (eerste matches) of Deep Search (lokale KMO's, websites, AI). */
   phase?: "fast" | "deep";
+  /** Voorlopige lijst uit de vacature-index, nog niet beoordeeld (tot de eerste matches er zijn). */
+  preview?: { title: string; company: string; location: string; url: string }[];
+  /** AI-zoekplan voor Boolean X-ray (Deep Search). */
+  xrayPlan?: import("./xray").XrayItem[];
   /** Bronnen die in Fast Search te traag waren; Deep Search haalt ze alsnog op. */
   slowSources?: string[];
   /** OpenAI Web Search al gedaan in Deep Search. */
@@ -182,6 +186,8 @@ export type RunStats = {
   aboveThreshold?: number;
   employersExamined?: number;
   apiCalls?: Record<string, number>;
+  /** Duur per soort aanroep: HTTP per host-soort, LLM per taak, zoekprovider (n, totaal ms, max ms). */
+  apiTimings?: Record<string, { n: number; ms: number; max: number }>;
   failures?: string[];
   /** Duur per fase in ms (profiel, jobboards, ontdekking, crawl, verificatie, voorselectie, scoring, db, eerste resultaat). */
   timings?: Record<string, number>;
@@ -212,6 +218,8 @@ export type Funnel = {
   aboveThreshold?: number;
   shown?: number;
   toVerify?: { contract: number; werkgever: number };
+  /** Boolean X-ray: geplande en uitgevoerde zoekopdrachten, vacatures per intentie. */
+  xray?: { planned: number; run: number; hits: Record<string, number> };
   /** Scores hergebruikt uit eerdere runs (zelfde profiel, vacaturetekst en scoringsversie). */
   scoreCacheHits?: number;
   /** Automatische tweede zoekronde: aantal zoekopdrachten en nieuwe vacatures. */

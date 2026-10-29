@@ -4,28 +4,33 @@
  * of "failed" is; een afgebroken run gaat gewoon verder bij de volgende aanroep.
  * Voortgang gaat via `emit` naar de SSE-stream.
  */
-import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Run, Company, Job } from "@/lib/db/schema";
 import { CostMeter } from "@/lib/llm";
 import { LIMITS } from "@/lib/config";
 import { buildProfile, isVagueRegion } from "./profile";
 import { searchOpenAIJobs } from "./aisearch";
-import { runSource, searchJobboards, searchTitles, searchPlaces, searchTargetedWeb, searchJooble, searchAdzuna } from "./jobboards";
+import { buildXrayPlan, normalizeXray, orderByYield, type XrayItem } from "./xray";
+import { runSource, runWebQueries, searchJobboards, searchTitles, searchPlaces, searchTargetedWeb, searchJooble, searchAdzuna } from "./jobboards";
 import { discoverCompanies, type DiscoveredCompany } from "./discover";
 import { verifyMany } from "./verify";
 import { buildEmployers } from "./employers";
-import { withUsage, mergeCalls } from "@/lib/usage";
+import { withUsage, mergeCalls, mergeTimings } from "@/lib/usage";
 import { minScore100 } from "@/lib/settings";
 import { findJobsPage } from "./findJobsPage";
 import { extractFromAts, extractFromPage } from "./extract";
 import { preselect, scoreJobs, quickShortlist, type RawScore } from "./score";
-import { contentHash, freshVerification, readCache, saveVerifications, scoreKey, writeCache } from "./index-cache";
+import { contentHash, freshVerification, readCache, saveVerifications, scoreKey, sha, writeCache } from "./index-cache";
 import { prefilterJobs, prefilterWithReasons, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
 import { applyHardFilters, explainNoMatches, toVerifyFlags } from "./filters";
 import { findContact, employerDomainFor, type Contact } from "./contact";
 import type { Funnel } from "./types";
 import { redactSecrets } from "@/lib/redact";
+import { getAdapter } from "@/lib/ats";
+import type { JobsPageResult } from "./findJobsPage";
+import { fetchPage } from "@/lib/fetch";
+import { countCall } from "@/lib/usage";
 import { isIntermediaryCompany } from "@/lib/blocklist";
 import { withinProfileRadius } from "@/lib/geo";
 import type { RunState, StepState, NormalizedJob, Profile, EmployerView } from "./types";
@@ -83,7 +88,7 @@ async function acquireLock(runId: number): Promise<boolean> {
 async function advanceRunLocked(runId: number, emit: Emit): Promise<Run["status"]> {
   const { result, usage } = await withUsage(() => advanceRunInner(runId, emit));
   // API-aanroepen per bron en mislukte bronnen bijschrijven in het run-overzicht.
-  if (Object.keys(usage.calls).length || usage.failures.length) {
+  if (Object.keys(usage.calls).length || usage.failures.length || Object.keys(usage.timings).length) {
     const row = (await db().select().from(schema.runs).where(eq(schema.runs.id, runId)).limit(1))[0];
     if (row) {
       const st = row.state ?? { steps: [] };
@@ -91,6 +96,7 @@ async function advanceRunLocked(runId: number, emit: Emit): Promise<Run["status"
       st.stats = {
         ...stats,
         apiCalls: mergeCalls(stats.apiCalls, usage.calls),
+        apiTimings: mergeTimings(stats.apiTimings, usage.timings),
         failures: Array.from(new Set([...(stats.failures ?? []), ...usage.failures])).slice(0, 12),
       };
       await saveRun(runId, { state: st });
@@ -112,7 +118,12 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const tProfile = Date.now();
         state = setStep(state, "profile", { status: "running", detail: "cv en opdracht lezen" });
         emit({ type: "steps", steps: state.steps });
-        const profile = await buildProfile({ cvText: run.cvText ?? "", freeText: run.freeText ?? "", previousProfile: run.profile }, meter);
+        // Zelfde cv + opdracht al eens gelezen (bv. opnieuw zoeken): profiel uit de cache, geen AI-wachttijd.
+        const profileKey = `profile:${sha(`${run.cvText ?? ""}\n${run.freeText ?? ""}`)}`;
+        const cachedProfile = run.profile ? null : (await readCache<Profile>([profileKey], 30)).get(profileKey);
+        const profile = cachedProfile ?? (await buildProfile({ cvText: run.cvText ?? "", freeText: run.freeText ?? "", previousProfile: run.profile }, meter));
+        if (!cachedProfile && !run.profile) await writeCache("profile", [{ key: profileKey, value: profile }]);
+        if (cachedProfile) countCall("profile_cache");
         if (isVagueRegion(profile.region)) {
           // Zonder woonplaats zoeken we niet in heel Vlaanderen: eerst de regio vragen (snel en goedkoop).
           state = {
@@ -129,6 +140,13 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         }
         state = setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · ${profile.region} · ${profile.radius_km} km` });
         state = timed(state, "profile", Date.now() - tProfile);
+        // Warme index: vacatures die we al kennen en die voor dit profiel al gescoord zijn, meteen tonen
+        // (enkel als hun controle recent is). Anders een voorlopige lijst uit de index, nog niet beoordeeld.
+        const tWarm = Date.now();
+        const warm = await warmStart(runId, profile).catch(() => ({ shown: 0, preview: [] as PreviewItem[], ids: [] as number[] }));
+        state = timed(state, "warmIndex", Date.now() - tWarm);
+        if (warm.shown) state = timed(state, "firstResult", Date.now() - (state.stats?.startedAt ?? run.createdAt.getTime()));
+        state = { ...state, preview: warm.preview, jobIds: [...(state.jobIds ?? []), ...warm.ids], stats: { ...(state.stats ?? {}), startedAt: state.stats?.startedAt ?? run.createdAt.getTime() } };
         await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "jobboards", state });
         await addCost(runId, meter);
         emit({ type: "status", status: "jobboards", state });
@@ -149,11 +167,18 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         emit({ type: "steps", steps: state.steps });
         // Warme vacature-index: recent geziene vacatures uit eerdere runs, meteen beschikbaar (geen API).
         const indexedPromise = indexedCandidates(profile).catch(() => [] as Job[]);
+        // X-ray-zoekplan (AI) loopt mee, maar Fast Search wacht er niet op: het wordt in Deep Search gebruikt.
+        let xrayPlan: XrayItem[] | null = null;
+        const xrayPromise = buildXrayPlan(profile, meter)
+          .then((p) => (xrayPlan = p))
+          .catch(() => null);
         const boards = await searchJobboards(profile, {
           ai: async () => ({ jobs: [], rounds: 0, searches: 0, raw: 0, costEur: 0, durationMs: 0, model: null, queries: [], skipped: "loopt in Deep Search" }),
           timeoutMs: LIMITS.fastSourceTimeoutMs,
         });
         state.slowSources = boards.slow ?? [];
+        await Promise.race([xrayPromise, new Promise((r) => setTimeout(r, 1500))]);
+        if (xrayPlan) state.xrayPlan = xrayPlan;
         const unique = dedupeJobs(boards.jobs);
         const pf = prefilterWithReasons(unique, profile);
         const filtered = pf.kept;
@@ -255,7 +280,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         };
         report();
         // OpenAI Web Search loopt tegelijk met het bekijken van de websites (één keer per run).
-        const aiRun = !state.aiDone ? runAiSearch(profile, state.slowSources ?? []) : null;
+        const aiRun = !state.aiDone ? runAiSearch(profile, state.slowSources ?? [], state.xrayPlan ?? null, meter) : null;
         let aiPending = Boolean(aiRun);
         void aiRun?.then(() => {
           aiPending = false;
@@ -299,6 +324,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
             },
           };
           state = timed(state, "aiSearch", ai.result.durationMs);
+          state.stats = { ...(state.stats ?? {}), funnel: { ...(state.stats?.funnel ?? {}), xray: ai.xray } };
         }
         state = timed(state, "crawl", Date.now() - started, true);
         await addCost(runId, meter);
@@ -333,7 +359,17 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const preInfo = { input: 0, aiKept: 0, filled: 0, output: 0, aiFailed: false };
         const tPre = Date.now();
         // Fast Search: geen AI-voorselectie (die kostte in productie ±90 s), wel een deterministische top 12.
-        const shortlistRaw = fast ? quickShortlist(profile, dedupedJobs, 12) : await preselect(profile, dedupedJobs, names, meter, preInfo);
+        let shortlistRaw: Job[];
+        if (fast) {
+          // Top 12 + alles wat voor dit profiel al een score heeft (kost niets en verdwijnt dan niet uit beeld).
+          const top = quickShortlist(profile, dedupedJobs, 12);
+          const keys = new Map(dedupedJobs.map((j) => [j.id, scoreKey(profile, j.contentHash ?? contentHash(j))]));
+          const known = await readCache<RawScore>(Array.from(keys.values()), 14);
+          const already = dedupedJobs.filter((j) => known.has(keys.get(j.id)!) && !top.includes(j));
+          shortlistRaw = [...top, ...already.slice(0, 20)];
+        } else {
+          shortlistRaw = await preselect(profile, dedupedJobs, names, meter, preInfo);
+        }
         state = timed(state, fast ? "preselectFast" : "preselect", Date.now() - tPre);
         funnel.preselect = preInfo;
 
@@ -613,8 +649,81 @@ async function indexedCandidates(profile: Profile, max = 60): Promise<Job[]> {
   return kept.filter((j) => withinProfileRadius(j.location, profile) !== false).slice(0, max) as Job[];
 }
 
+type PreviewItem = { title: string; company: string; location: string; url: string };
+
+/**
+ * Warme start na het profiel: kandidaat-vacatures uit de eigen index. Met een geldige score uit de cache
+ * (zelfde profiel, vacaturetekst en scoringsversie) en een recente controle die niet 'gesloten' is,
+ * worden ze meteen matches. Geen API- of AI-calls.
+ */
+async function warmStart(runId: number, profile: Profile): Promise<{ shown: number; preview: PreviewItem[]; ids: number[] }> {
+  const candidates = await indexedCandidates(profile, 80);
+  if (!candidates.length) return { shown: 0, preview: [], ids: [] };
+  const names = await companyNames(candidates);
+  const keys = new Map(candidates.map((j) => [j.id, scoreKey(profile, j.contentHash ?? contentHash(j))]));
+  const cached = await readCache<RawScore>(Array.from(keys.values()), 14);
+  const threshold = await minScore100();
+  const ready = candidates
+    .map((j) => ({ j, s: cached.get(keys.get(j.id)!), v: freshVerification(j) }))
+    .filter((x) => x.s && x.v && x.v.status !== "gesloten")
+    .map((x) => {
+      const s = x.s!;
+      const total = Math.max(0, Math.min(10, s.kerntaken + s.vaardigheden + s.senioriteit + s.sector + s.mobiliteit)) * 10;
+      return { ...x, total };
+    })
+    .filter((x) => x.total >= threshold && x.s!.contract !== "tijdelijk" && x.s!.contract !== "interim" && x.s!.contract !== "freelance" && x.s!.employer_status !== "tussenpersoon")
+    .sort((a, b) => b.total - a.total)
+    .slice(0, LIMITS.maxResults);
+  if (ready.length) {
+    await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
+    await db()
+      .insert(schema.matches)
+      .values(
+        ready.map((x, i) => ({
+          runId,
+          jobId: x.j.id,
+          score: x.total,
+          reason: x.s!.argument,
+          argument: x.s!.argument,
+          risk: x.s!.risk,
+          rank: i + 1,
+          verification: `${x.v!.status}: ${x.v!.reason}`,
+        })),
+      );
+  }
+  const preview = quickShortlist(profile, candidates, 8).map((j) => ({ title: j.title, company: names.get(j.id) ?? "", location: j.location ?? "", url: j.url }));
+  return { shown: ready.length, preview: ready.length ? [] : preview, ids: candidates.map((j) => j.id) };
+}
+
+type XrayStats = { planned: number; run: number; hits: Record<string, number> };
+
+/**
+ * Boolean X-ray (Deep Search): het AI-zoekplan in twee golven van max 4 zoekopdrachten. De tweede golf geeft voorrang
+ * aan intenties die in de eerste golf vacatures opleverden (adaptief, zonder extra AI-call).
+ */
+async function runXray(profile: Profile, plan: XrayItem[] | null, meter: CostMeter): Promise<{ jobs: NormalizedJob[]; stats: XrayStats }> {
+  const items = plan ?? (await buildXrayPlan(profile, meter).catch(() => [] as XrayItem[]));
+  const queries = normalizeXray(items, profile);
+  if (!queries.length) return { jobs: [], stats: { planned: 0, run: 0, hits: {} } };
+  // Golf 1: per intentie de eerste zoekopdracht (breed proeven).
+  const firstPerIntent = Array.from(new Map(queries.map((q) => [q.intent, q])).values()).slice(0, 4);
+  const w1 = await runWebQueries(firstPerIntent, 4);
+  const hits: Record<string, number> = {};
+  for (const x of w1.perQuery) hits[x.query.intent] = (hits[x.query.intent] ?? 0) + x.hits;
+  const rest = queries.filter((q) => !firstPerIntent.includes(q));
+  const w2 = await runWebQueries(orderByYield(rest, hits, 4), 4);
+  for (const x of w2.perQuery) hits[x.query.intent] = (hits[x.query.intent] ?? 0) + x.hits;
+  return { jobs: [...w1.jobs, ...w2.jobs], stats: { planned: queries.length, run: w1.perQuery.length + w2.perQuery.length, hits } };
+}
+
 /** OpenAI Web Search voor Deep Search: resultaten door dezelfde dedup en voorfilter, dan bewaren. */
-async function runAiSearch(profile: Profile, slowSources: string[] = []): Promise<{ result: Awaited<ReturnType<typeof searchOpenAIJobs>>; stored: Job[] }> {
+async function runAiSearch(
+  profile: Profile,
+  slowSources: string[] = [],
+  plan: XrayItem[] | null = null,
+  meter: CostMeter = new CostMeter(),
+): Promise<{ result: Awaited<ReturnType<typeof searchOpenAIJobs>>; stored: Job[]; xray: XrayStats }> {
+  const xrayRun = runXray(profile, plan, meter).catch(() => ({ jobs: [] as NormalizedJob[], stats: { planned: 0, run: 0, hits: {} } as XrayStats }));
   const [result, ...late] = await Promise.all([
     searchOpenAIJobs(profile).catch(
       (e: unknown) => ({ jobs: [], rounds: 0, searches: 0, raw: 0, costEur: 0, durationMs: 0, model: null, queries: [], error: redactSecrets(e instanceof Error ? e.message : String(e)).slice(0, 120) }) as Awaited<ReturnType<typeof searchOpenAIJobs>>,
@@ -622,10 +731,11 @@ async function runAiSearch(profile: Profile, slowSources: string[] = []): Promis
     // Bronnen die in Fast Search te traag waren: nu alsnog, zonder tijdslimiet.
     ...slowSources.map((k) => runSource(k, profile).catch(() => ({ jobs: [] as NormalizedJob[], queries: 0, raw: 0 }))),
   ]);
-  const lateJobs = late.flatMap((x) => x.jobs);
+  const xr = await xrayRun;
+  const lateJobs = [...late.flatMap((x) => x.jobs), ...xr.jobs];
   const pf = prefilterWithReasons(dedupeJobs([...result.jobs, ...lateJobs]), profile);
   const stored = await upsertJobs(pf.kept).catch(() => [] as Job[]);
-  return { result, stored };
+  return { result, stored, xray: xr.stats };
 }
 
 /** Laat een trage taak niet langer dan `ms` duren. */
@@ -734,8 +844,27 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 type CrawlOutcome = { domain: string; jobs: Job[]; hadJobs: boolean; braveUsed: boolean; rawCount?: number; error?: string };
 
 /** Stap 4 + 5 voor één domein, met opslag in companies en jobs. */
+/**
+ * Gekende jobpagina of ATS hergebruiken: niet opnieuw de homepage en tot 18 paden verkennen.
+ * Geeft null als het bedrijf (nog) geen bruikbare jobpagina heeft.
+ */
+async function knownJobsPage(domain: string): Promise<JobsPageResult | null> {
+  const c = (await db().select().from(schema.companies).where(eq(schema.companies.domain, domain)).limit(1))[0];
+  if (!c?.jobsUrl) return null;
+  const name = c.name ?? domain;
+  if (c.atsSlug && c.ats !== "unknown" && c.ats !== "none") {
+    const adapter = getAdapter(c.ats);
+    if (adapter) return { kind: "ats", detection: { adapter, slug: c.atsSlug }, jobsUrl: c.jobsUrl, companyName: name };
+  }
+  const page = await fetchPage(c.jobsUrl, { allowJina: true });
+  if (page.status >= 200 && page.status < 300 && page.text) return { kind: "page", jobsUrl: c.jobsUrl, text: page.text, links: page.links, companyName: name, how: "standard-path" };
+  return null;
+}
+
 export async function crawlDomain(domain: string, profile: Profile | null, meter: CostMeter, allowBrave: boolean): Promise<CrawlOutcome> {
-  const found = await findJobsPage(domain, meter, { allowBrave });
+  const known = await knownJobsPage(domain).catch(() => null);
+  if (known) countCall("jobpagina_hergebruikt");
+  const found = known ?? (await findJobsPage(domain, meter, { allowBrave }));
   const base = { domain, name: found.companyName, lastCrawledAt: new Date() };
   let normalized: NormalizedJob[] = [];
   let atsValue: Company["ats"] = "unknown";
@@ -743,8 +872,10 @@ export async function crawlDomain(domain: string, profile: Profile | null, meter
   let notes: string | null = null;
   let braveUsed = false;
 
+  let atsSlug: string | null = null;
   if (found.kind === "ats") {
     atsValue = found.detection.adapter.id;
+    atsSlug = found.detection.slug;
     jobsUrl = found.jobsUrl;
     const fromFeed = await extractFromAts(found.detection, found.companyName);
     if (fromFeed) {
@@ -774,11 +905,11 @@ export async function crawlDomain(domain: string, profile: Profile | null, meter
   const company = (
     await db()
       .insert(schema.companies)
-      .values({ ...base, ats: atsValue, jobsUrl, openJobsCount: normalized.length, notes })
+      .values({ ...base, ats: atsValue, atsSlug, jobsUrl, openJobsCount: normalized.length, notes })
       .onConflictDoUpdate({
         target: schema.companies.domain,
         // De naam uit Google Maps is betrouwbaarder dan de paginatitel: die houden we als ze er al is.
-        set: { name: sql`coalesce(${schema.companies.name}, excluded.name)`, ats: atsValue, jobsUrl, lastCrawledAt: base.lastCrawledAt, openJobsCount: normalized.length, notes },
+        set: { name: sql`coalesce(${schema.companies.name}, excluded.name)`, ats: atsValue, atsSlug, jobsUrl, lastCrawledAt: base.lastCrawledAt, openJobsCount: normalized.length, notes },
       })
       .returning()
   )[0];
@@ -804,7 +935,8 @@ export async function crawlDomain(domain: string, profile: Profile | null, meter
 
 async function recentlyCrawledCompanies(): Promise<Company[]> {
   const since = new Date(Date.now() - LIMITS.cacheTtlDays * 24 * 3600 * 1000);
-  return db().select().from(schema.companies).where(and(gt(schema.companies.lastCrawledAt, since), ne(schema.companies.ats, "unknown")));
+  // Ook bedrijven met een gewone jobpagina (ats 'unknown') hergebruiken: die werden vroeger elke run opnieuw gecrawld.
+  return db().select().from(schema.companies).where(gt(schema.companies.lastCrawledAt, since));
 }
 
 async function jobsOfCompanies(ids: number[]): Promise<Job[]> {

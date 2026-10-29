@@ -75,6 +75,8 @@ export const companies = pgTable("companies", {
   domain: text("domain").notNull().unique(),
   name: text("name"),
   jobsUrl: text("jobs_url"),
+  /** ATS-sleutel (bv. bedrijfsnaam bij Recruitee): de feed meteen ophalen zonder de site opnieuw te verkennen. */
+  atsSlug: text("ats_slug"),
   ats: atsEnum("ats").notNull().default("unknown"),
   lastCrawledAt: timestamp("last_crawled_at", { withTimezone: true }),
   openJobsCount: integer("open_jobs_count").notNull().default(0),
@@ -153,6 +155,8 @@ export const pageCache = pgTable("page_cache", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow().notNull(),
   contentText: text("content_text"),
   statusCode: integer("status_code").notNull(),
+  /** Links van de pagina (max 300), zodat een cachetreffer ook de navigatie (jobpagina, ATS) kent. */
+  links: jsonb("links").$type<{ href: string; text: string }[]>(),
 });
 
 /** Maandtellers: Brave-queries (gratis tier) en gebruikte kosten. Key = "YYYY-MM". */

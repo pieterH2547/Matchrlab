@@ -62,7 +62,8 @@ function companyNameFromTitle(title: string, domain: string): string {
 
 export async function findJobsPage(domain: string, meter: CostMeter, opts: { allowBrave?: boolean } = {}): Promise<JobsPageResult> {
   const homeUrl = `https://${domain}/`;
-  const home = await fetchPage(homeUrl, { noCache: true });
+  // Homepage uit de cache (7 dagen, mét links) als die er is: geen nieuwe request per kandidaat.
+  const home = await fetchPage(homeUrl);
   const linkUrls = home.links.map((l) => l.href);
   const titleMatch = home.html?.match(/<title[^>]*>([^<]*)<\/title>/i);
   const companyName = companyNameFromTitle(titleMatch?.[1]?.trim() ?? "", domain);
@@ -78,7 +79,7 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
   }
 
   // a. ATS-detectie
-  const detection = home.html ? detectAts(home.html, linkUrls) : null;
+  const detection = detectAts(home.html ?? "", linkUrls);
   if (detection) {
     return { kind: "ats", detection, jobsUrl: detection.adapter.listingUrl(detection.slug), companyName };
   }
@@ -95,11 +96,22 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
 
   // b. standaardpaden (plus de interne joblinks die we al zagen; die zijn even goedkoop)
   const tried = new Set<string>();
-  const candidates = [...candidateLinks.slice(0, 3).map((l) => l.href), ...STANDARD_JOB_PATHS.map((p) => `https://${domain}${p}`)];
-  // Alle kandidaten tegelijk, zonder Jina: een trage of dode site houdt zo niet alles op.
-  const unique = candidates.filter((u) => (tried.has(u) ? false : (tried.add(u), true))).slice(0, 18);
-  const probes = await Promise.all(unique.map((url) => fetchPage(url, { allowJina: false }).then((page) => ({ url, page })).catch(() => null)));
-  const okProbes = probes.filter((p): p is NonNullable<typeof p> => Boolean(p && p.page.status >= 200 && p.page.status < 300));
+  // In golven, max 6 requests tegelijk per domein: eerst de joblinks uit het menu en de 3 meest voorkomende paden;
+  // pas als dat niets geeft, de overige paden. Vroeger tot 18 requests tegelijk naar één site.
+  const linked = candidateLinks.slice(0, 3).map((l) => l.href);
+  const waves = [
+    [...linked, ...STANDARD_JOB_PATHS.slice(0, linked.length ? 3 : 6).map((p) => `https://${domain}${p}`)],
+    STANDARD_JOB_PATHS.slice(linked.length ? 3 : 6).map((p) => `https://${domain}${p}`),
+  ];
+  const okProbes: { url: string; page: Awaited<ReturnType<typeof fetchPage>> }[] = [];
+  for (const wave of waves) {
+    const urls = wave.filter((u) => (tried.has(u) ? false : (tried.add(u), true)));
+    for (let i = 0; i < urls.length; i += 6) {
+      const probes = await Promise.all(urls.slice(i, i + 6).map((url) => fetchPage(url, { allowJina: false }).then((page) => ({ url, page })).catch(() => null)));
+      okProbes.push(...probes.filter((p): p is NonNullable<typeof p> => Boolean(p && p.page.status >= 200 && p.page.status < 300)));
+    }
+    if (okProbes.some((p) => isUsefulText(p.page.text) && JOB_WORDS.test(p.page.text.slice(0, 3000)))) break;
+  }
   const direct = okProbes.find((p) => isUsefulText(p.page.text) && JOB_WORDS.test(p.page.text.slice(0, 3000)));
   if (direct) return { kind: "page", jobsUrl: direct.url, text: direct.page.text, links: direct.page.links, companyName, how: "standard-path" };
   // JavaScript-sites: de pagina bestaat (200) maar is leeg; enkel dan Jina, op max twee kandidaten.

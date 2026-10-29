@@ -6,7 +6,7 @@ import * as cheerio from "cheerio";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { getSetting } from "@/lib/settings";
-import { countCall } from "@/lib/usage";
+import { countCall, recordTiming } from "@/lib/usage";
 import { LIMITS } from "@/lib/config";
 
 const UA = "Mozilla/5.0 (compatible; MatchrBot/0.1; +https://recruitrlab.be) Chrome/120 Safari/537.36";
@@ -100,12 +100,30 @@ async function readBody(res: Response): Promise<string> {
 }
 
 /** Ruwe fetch zonder cache: voor API's en ATS-feeds. Trage API's (AI-zoeken, Google Jobs) geven een ruimere timeout mee. */
+const API_HOSTS: [RegExp, string][] = [
+  [/serpapi\.com/, "http:serpapi"],
+  [/jooble\.org/, "http:jooble"],
+  [/adzuna\.com/, "http:adzuna"],
+  [/serper\.dev/, "http:serper"],
+  [/api\.openai\.com/, "http:openai"],
+  [/linkup\.so/, "http:linkup"],
+  [/tavily\.com/, "http:tavily"],
+  [/exa\.ai/, "http:exa"],
+  [/r\.jina\.ai/, "http:jina"],
+  [/firecrawl\.dev/, "http:firecrawl"],
+  [/recruitee|teamtailor|lever\.co|greenhouse|jobtoolz|smartrecruiters|personio|workable|talentfinder/, "http:ats"],
+];
+
 export async function fetchRaw(url: string, init?: RequestInit, timeoutMs?: number): Promise<{ status: number; body: string; finalUrl: string }> {
+  const t = Date.now();
+  const kind = API_HOSTS.find(([re]) => re.test(url))?.[1] ?? "http:website";
   try {
     const res = await timedFetch(url, init, timeoutMs);
     const body = await readBody(res);
+    recordTiming(kind, Date.now() - t);
     return { status: res.status, body, finalUrl: res.url || url };
   } catch {
+    recordTiming(`${kind}:fout`, Date.now() - t);
     return { status: 0, body: "", finalUrl: url };
   }
 }
@@ -131,14 +149,15 @@ async function readCache(url: string) {
   return null;
 }
 
-async function writeCache(url: string, status: number, text: string) {
+async function writeCache(url: string, status: number, text: string, links: LinkInfo[] = []) {
   const contentText = text.slice(0, 60_000);
+  const kept = links.slice(0, 300);
   await db()
     .insert(schema.pageCache)
-    .values({ url, statusCode: status, contentText, fetchedAt: new Date() })
+    .values({ url, statusCode: status, contentText, links: kept, fetchedAt: new Date() })
     .onConflictDoUpdate({
       target: schema.pageCache.url,
-      set: { statusCode: status, contentText, fetchedAt: new Date() },
+      set: { statusCode: status, contentText, links: kept, fetchedAt: new Date() },
     });
 }
 
@@ -184,7 +203,8 @@ export async function fetchPage(url: string, opts: { allowJina?: boolean; noCach
   if (!opts.noCache) {
     const cached = await readCache(url);
     if (cached) {
-      return { url, finalUrl: url, status: cached.statusCode, text: cached.contentText ?? "", links: [], fromCache: true };
+      countCall("cache:pagina");
+      return { url, finalUrl: url, status: cached.statusCode, text: cached.contentText ?? "", links: cached.links ?? [], fromCache: true };
     }
   }
   const r = await fetchRaw(url);
@@ -210,7 +230,7 @@ export async function fetchPage(url: string, opts: { allowJina?: boolean; noCach
       if (fc) text = fc;
     }
   }
-  await writeCache(url, r.status, text).catch(() => undefined);
+  await writeCache(url, r.status, text, links).catch(() => undefined);
   return { url, finalUrl: r.finalUrl, status: r.status, html, text, links, fromCache: false };
 }
 

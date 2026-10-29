@@ -69,6 +69,21 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       {run.status === "failed" && <p className="text-sm text-err">De run is gestopt: {run.state.error ?? "onbekende fout"}.</p>}
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
 
+      {run.matches.length === 0 && running && (run.state.preview?.length ?? 0) > 0 && (
+        <Section title="Eerste kandidaat-vacatures uit de index · nog niet beoordeeld">
+          <ul className="divide-y divide-line">
+            {run.state.preview!.map((p) => (
+              <li key={p.url} className="py-2.5 text-[14px]">
+                <a href={p.url} target="_blank" rel="noopener noreferrer" className="font-medium text-navy hover:underline underline-offset-4">
+                  {p.title}
+                </a>
+                <span className="text-ink-soft"> — {[p.company || "werkgever onbekend", p.location].filter(Boolean).join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {run.matches.length > 0 && (
         <Section title={`${run.matches.length} passende vacatures${running ? " · Deep Search loopt nog" : ""}`} action={<ExportBar run={run} />}>
           <div className="divide-y divide-line">
@@ -445,6 +460,34 @@ function RunSummary({ stats, cost }: { stats: RunStats; cost: number }) {
         <Row k="Uitvoeringstijd" v={secs ? `${Math.floor(secs / 60)} min ${secs % 60} s` : undefined} />
         <Row k="Geschatte AI-kost (totaal)" v={cost ? `€ ${cost.toFixed(3)}` : "€ 0"} />
       </div>
+      {stats.timings && Object.keys(stats.timings).length > 0 && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">Duur per fase</div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(stats.timings)
+              .filter(([, ms]) => ms > 0)
+              .map(([k, ms]) => (
+                <span key={k} className="mono text-xs rounded-full px-2 py-0.5 bg-paper-soft">
+                  {k} {(ms / 1000).toFixed(1)} s
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+      {stats.apiTimings && Object.keys(stats.apiTimings).length > 0 && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">Aanroepen: aantal · gemiddeld · traagste</div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(stats.apiTimings)
+              .sort((a, b) => b[1].ms - a[1].ms)
+              .map(([k, t]) => (
+                <span key={k} className="mono text-xs rounded-full px-2 py-0.5 bg-paper-soft">
+                  {k} {t.n}× · {(t.ms / t.n / 1000).toFixed(1)} s · {(t.max / 1000).toFixed(1)} s
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
       {calls.length > 0 && (
         <div className="mt-3">
           <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">API-aanroepen per bron</div>

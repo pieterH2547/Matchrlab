@@ -2,6 +2,7 @@
  * Dunne laag rond de Anthropic SDK: gestructureerde JSON-output via Zod,
  * kostentelling per aanroep, en één plek voor modelkeuze.
  */
+import { recordTiming } from "@/lib/usage";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
@@ -63,6 +64,15 @@ export type LlmOptions<T extends z.ZodTypeAny> = {
  * terugstuurt of de vraag weigert; de aanroeper beslist wat daarmee gebeurt.
  */
 export async function llmJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
+  const t = Date.now();
+  try {
+    return await llmJsonInner(opts);
+  } finally {
+    recordTiming(`llm:${opts.model ?? "cheap"}:${opts.effort ?? "default"}`, Date.now() - t);
+  }
+}
+
+async function llmJsonInner<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
   // Standaard enkel OpenAI; Claude enkel als je dat in Instellingen kiest (anthropic of auto).
   const choice = (await getSetting("AI_PROVIDER")) ?? "openai";
   const hasClaude = Boolean(await getSetting("ANTHROPIC_API_KEY"));

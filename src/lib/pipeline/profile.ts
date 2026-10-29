@@ -34,7 +34,7 @@ Regels:
 - company_types: 4 tot 8 soorten bedrijven (ook kleine KMO's) die dit profiel aanwerven, kort zoals je ze in Google Maps intikt
   ("boekhoudkantoor", "chemiebedrijf", "voedingsbedrijf", "installateur HVAC"). Nooit uitzendkantoren of recruitmentbureaus.
 - nearby_municipalities: max 10 gemeenten binnen de straal rond de regio, de regio zelf eerst, dichtstbij eerst.
-- region_lat / region_lng: coördinaten van de regio (gemeente) als je ze kent, anders 0.`;
+- region_lat / region_lng: coördinaten van de regio (gemeente) als je ze kent, anders 0.`
 
 export async function buildProfile(input: ProfileInput, meter: CostMeter): Promise<Profile> {
   const previous = input.previousProfile

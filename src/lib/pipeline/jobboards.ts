@@ -170,30 +170,50 @@ export function parseJobResult(title: string, snippet: string, kind: string): { 
 }
 
 /** Spoor C: gerichte Google-zoekopdrachten via de zoekketen (Serper eerst). */
+/**
+ * Een lijst zoekopdrachten uitvoeren via de zoekketen, max `concurrency` tegelijk. Geeft per zoekopdracht
+ * het aantal concrete vacatures terug (voor adaptief verder zoeken).
+ */
+export async function runWebQueries<Q extends { q: string; kind: string }>(qs: Q[], concurrency = 4): Promise<{ jobs: NormalizedJob[]; perQuery: { query: Q; hits: number }[]; queries: number }> {
+  const out: NormalizedJob[] = [];
+  const perQuery: { query: Q; hits: number }[] = [];
+  let ok = 0;
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, qs.length) }, async () => {
+      while (i < qs.length) {
+        const x = qs[i++];
+        const r = await webSearch(x.q, { count: 10, freshness: x.kind === "site" ? undefined : "pm" }).catch(() => null);
+        if (r) ok += 1;
+        let hits = 0;
+        for (const hit of r ?? []) {
+          if (!looksLikeSingleJob(hit.url, x.kind)) continue;
+          const parsed = parseJobResult(hit.title, hit.description, x.kind);
+          hits += 1;
+          out.push({
+            source: x.kind === "vdab" ? "vdab" : "web",
+            externalId: x.kind === "vdab" ? hit.url.match(/vacatures\/(\d+)/)?.[1] : undefined,
+            url: hit.url,
+            title: parsed.title || hit.title,
+            location: parsed.location,
+            descriptionText: hit.description,
+            companyName: parsed.company,
+            raw: { via: x.kind, title: hit.title, xray: (x as { intent?: string }).intent },
+          });
+        }
+        perQuery.push({ query: x, hits });
+      }
+    }),
+  );
+  return { jobs: out, perQuery, queries: ok };
+}
+
 export async function searchTargetedWeb(profile: Profile, opts: { budget?: number; titles?: string[]; places?: string[] } = {}): Promise<SourceOut> {
   const qs = targetedQueries(profile, opts);
-  const results = await Promise.all(qs.map((x) => webSearch(x.q, { count: 10, freshness: x.kind === "site" ? undefined : "pm" }).then((r) => ({ ...x, r }))));
-  const out: NormalizedJob[] = [];
-  let raw = 0;
-  for (const { kind, r } of results) {
-    raw += (r ?? []).length;
-    for (const hit of r ?? []) {
-      if (!looksLikeSingleJob(hit.url, kind)) continue;
-      const parsed = parseJobResult(hit.title, hit.description, kind);
-      out.push({
-        source: kind === "vdab" ? "vdab" : "web",
-        externalId: kind === "vdab" ? hit.url.match(/vacatures\/(\d+)/)?.[1] : undefined,
-        url: hit.url,
-        title: parsed.title || hit.title,
-        location: parsed.location,
-        descriptionText: hit.description,
-        companyName: parsed.company,
-        raw: { via: kind, title: hit.title },
-      });
-    }
-  }
-  const ok = results.filter((x) => x.r !== null).length;
-  return { jobs: out.slice(0, LIMITS.maxJobsPerBoard), queries: ok, raw, error: qs.length && ok === 0 ? "zoekmachine gaf geen antwoord" : undefined };
+  // Begrensd (5 tegelijk) i.p.v. alles tegelijk: respecteert de rate limit van de zoekprovider.
+  const r = await runWebQueries(qs, 5);
+  const raw = r.perQuery.reduce((n, x) => n + x.hits, 0);
+  return { jobs: r.jobs.slice(0, LIMITS.maxJobsPerBoard), queries: r.queries, raw, error: qs.length && r.queries === 0 ? "zoekmachine gaf geen antwoord" : undefined };
 }
 
 type JoobleJob = { id?: string | number; title?: string; location?: string; snippet?: string; source?: string; type?: string; link?: string; company?: string; updated?: string };
