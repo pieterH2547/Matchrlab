@@ -126,6 +126,8 @@ export async function matchesForRun(runId: number): Promise<MatchView[]> {
     argument: m.argument ?? m.reason,
     risk: m.risk ?? "",
     verification: m.verification ?? "niet geverifieerd",
+    contactEmail: m.contactEmail ?? null,
+    contactSource: m.contactSource ?? null,
   }));
 }
 

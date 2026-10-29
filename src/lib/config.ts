@@ -71,7 +71,7 @@ export const LIMITS = {
   /** Max tijd per bedrijf in de crawlstap; trager = overslaan. */
   perDomainTimeoutMs: 15_000,
   /** Max domeinen parallel crawlen. */
-  crawlConcurrency: 10,
+  crawlConcurrency: 16,
   /** Timeout per HTTP-fetch. */
   fetchTimeoutMs: 8_000,
   /** Max bytes per pagina. */

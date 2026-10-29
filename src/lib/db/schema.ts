@@ -82,6 +82,9 @@ export const companies = pgTable("companies", {
   category: text("category"),
   lat: real("lat"),
   lng: real("lng"),
+  /** Gevonden contactadres van de werkgever (jobs@, hr@, …) en waar het stond. */
+  contactEmail: text("contact_email"),
+  contactSource: text("contact_source"),
 });
 
 export const jobs = pgTable(
@@ -118,6 +121,9 @@ export const matches = pgTable(
     risk: text("risk"),
     /** actief | niet geverifieerd, met korte reden. Gesloten vacatures worden niet bewaard. */
     verification: text("verification"),
+    /** Contactadres om de kandidaat voor te stellen, enkel zoals gevonden op vacature of site, met vindplaats. */
+    contactEmail: text("contact_email"),
+    contactSource: text("contact_source"),
     rank: integer("rank").notNull(),
   },
   (t) => [uniqueIndex("matches_run_job_idx").on(t.runId, t.jobId)],

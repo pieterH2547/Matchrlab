@@ -149,6 +149,8 @@ export type RunState = {
   stats?: RunStats;
   /** Alle domeinen die deze run in beeld bracht (ook hergebruikte), voor de werkgeverslijst. */
   companyDomains?: string[];
+  /** Spoor B liep al mee tijdens de vacaturestap (sneller); de ontdekstap gebruikt dit resultaat. */
+  prefetchedDiscovery?: import("./discover").DiscoveryResult;
   /** Run gestopt na het profiel omdat er geen woonplaats was. */
   needsRegion?: boolean;
   kpi?: { verifiedJobs: number; proactive: number; relationsChecked: number; draftsSaved: number };
@@ -208,6 +210,8 @@ export type EmployerView = {
   hasMatchingJob: boolean;
   openJobs: number;
   distanceKm: number | null;
+  contactEmail?: string | null;
+  contactSource?: string | null;
 };
 
 /** Werkgevers beoordelen: enkel relevantie en activiteit, geen feiten verzinnen. */
@@ -294,6 +298,8 @@ export type MatchView = {
   argument: string;
   risk: string;
   verification: string;
+  contactEmail: string | null;
+  contactSource: string | null;
 };
 
 export type RunView = {

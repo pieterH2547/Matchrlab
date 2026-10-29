@@ -21,9 +21,10 @@ import { extractFromAts, extractFromPage } from "./extract";
 import { preselect, scoreJobs } from "./score";
 import { prefilterJobs, prefilterWithReasons, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
 import { applyHardFilters, explainNoMatches, toVerifyFlags } from "./filters";
+import { findContact, employerDomainFor, type Contact } from "./contact";
 import type { Funnel } from "./types";
 import { redactSecrets } from "@/lib/redact";
-import type { RunState, StepState, NormalizedJob, Profile } from "./types";
+import type { RunState, StepState, NormalizedJob, Profile, EmployerView } from "./types";
 
 export type Emit = (event: { type: "steps"; steps: StepState[] } | { type: "status"; status: Run["status"]; state: RunState } | { type: "error"; message: string }) => void;
 
@@ -110,7 +111,15 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const profile = run.profile!;
         state = setStep(state, "jobboards", { status: "running", detail: "Google Jobs, Jooble, Adzuna, gerichte Google-zoekopdrachten en OpenAI Web Search" });
         emit({ type: "steps", steps: state.steps });
-        const boards = await searchJobboards(profile);
+        // Spoor B (werkgevers via Google Maps) loopt tegelijk mee: wacht niet op de vacaturebronnen.
+        state = setStep(state, "discover", { status: "running", detail: "loopt mee met de vacaturebronnen" });
+        emit({ type: "steps", steps: state.steps });
+        const remainingBraveB = Math.max(0, LIMITS.braveQueriesPerRun - (state.braveQueriesUsed ?? 0));
+        const [boards, prefetched] = await Promise.all([
+          searchJobboards(profile),
+          discoverCompanies(profile, meter, { maxQueries: Math.min(8, remainingBraveB) }).catch(() => null),
+        ]);
+        if (prefetched) state.prefetchedDiscovery = prefetched;
         const unique = dedupeJobs(boards.jobs);
         const pf = prefilterWithReasons(unique, profile);
         const filtered = pf.kept;
@@ -153,7 +162,8 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const fresh = await recentlyCrawledCompanies();
         const freshDomains = new Set(fresh.map((c) => c.domain));
         const remainingBrave = Math.max(0, LIMITS.braveQueriesPerRun - (state.braveQueriesUsed ?? 0));
-        const disc = await discoverCompanies(profile, meter, { maxQueries: Math.min(8, remainingBrave) });
+        const disc = state.prefetchedDiscovery ?? (await discoverCompanies(profile, meter, { maxQueries: Math.min(8, remainingBrave) }));
+        state.prefetchedDiscovery = undefined;
         await saveDiscovered(disc.companies);
         const reused = fresh.filter((c) => disc.domains.includes(c.domain));
         const toCrawl = disc.domains.filter((d) => !freshDomains.has(d));
@@ -319,6 +329,10 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           result.intro = explainNoMatches({ found: funnel.found ?? 0, siteJobs: funnel.siteJobs ?? 0, unique: dedupedJobs.length, checked: toVerify.length, closed, toScoring: shortlist.length, scored: scoredCount, reasons }, threshold);
           result.followups = ["Zoek in een grotere straal", "Zoek met een verwante functietitel"];
         }
+        // Contactadres per match (vacaturetekst, vacaturepagina, site van de werkgever), parallel en begrensd.
+        state = setStep(state, "score", { status: "running", detail: "contactadressen zoeken" });
+        emit({ type: "steps", steps: state.steps });
+        const contacts = await contactsForJobs(result.scored.map((s) => s.job));
         await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
         if (result.scored.length) {
           await db()
@@ -328,7 +342,8 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
                 const v = verdicts.get(s.job.id);
                 const flags = toVerifyFlags(s, names.get(s.job.id) ?? "");
                 const verification = `${v ? `${v.status}: ${v.reason}` : "niet geverifieerd"}${flags.length ? ` | ${flags.join(", ")}` : ""}`;
-                return { runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1, verification };
+                const c = contacts.get(s.job.id) ?? null;
+                return { runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1, verification, contactEmail: c?.email ?? null, contactSource: c?.source ?? null };
               }),
             );
         }
@@ -337,7 +352,8 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         state = setStep(state, "score", { status: "running", detail: "interessante werkgevers selecteren" });
         emit({ type: "steps", steps: state.steps });
         const matchedCompanyIds = new Set(result.scored.map((s) => s.job.companyId).filter((x): x is number => x !== null));
-        const employers = await buildEmployers(profile, state.companyDomains ?? [], matchedCompanyIds, meter).catch(() => []);
+        const employersRaw = await buildEmployers(profile, state.companyDomains ?? [], matchedCompanyIds, meter).catch(() => []);
+        const employers = await withContacts(employersRaw);
 
         const verifiedActive = result.scored.filter((s) => verdicts.get(s.job.id)?.status === "actief").length;
         state = {
@@ -412,6 +428,42 @@ async function saveDiscovered(companies: DiscoveredCompany[]): Promise<void> {
 }
 
 /** Laat een trage taak niet langer dan `ms` duren. */
+/** Contact per vacature; per werkgever onthouden in companies zodat een volgende run het niet opnieuw zoekt. */
+async function contactsForJobs(jobsIn: Job[]): Promise<Map<number, Contact>> {
+  const ids = Array.from(new Set(jobsIn.map((j) => j.companyId).filter((x): x is number => x !== null)));
+  const comps = ids.length ? await db().select().from(schema.companies).where(inArray(schema.companies.id, ids)) : [];
+  const byId = new Map(comps.map((c) => [c.id, c]));
+  const out = new Map<number, Contact>();
+  await Promise.all(
+    jobsIn.map(async (j) => {
+      const c = j.companyId !== null ? byId.get(j.companyId) : undefined;
+      const domain = employerDomainFor(j.url, c?.domain ?? null);
+      const found = await withTimeout(findContact({ jobText: j.descriptionText, jobUrl: j.url, employerDomain: domain, careersUrl: c?.jobsUrl }), 15_000).catch(() => null);
+      const contact = found ?? (c?.contactEmail ? { email: c.contactEmail, source: c.contactSource ?? "website werkgever" } : null);
+      if (contact) out.set(j.id, contact);
+      if (found && c && !c.contactEmail) {
+        await db().update(schema.companies).set({ contactEmail: found.email, contactSource: found.source }).where(eq(schema.companies.id, c.id)).catch(() => undefined);
+      }
+    }),
+  );
+  return out;
+}
+
+async function withContacts(list: EmployerView[]): Promise<EmployerView[]> {
+  if (!list.length) return list;
+  const comps = await db().select().from(schema.companies).where(inArray(schema.companies.domain, list.map((e) => e.domain)));
+  const byDomain = new Map(comps.map((c) => [c.domain, c]));
+  return Promise.all(
+    list.map(async (e) => {
+      const c = byDomain.get(e.domain);
+      if (c?.contactEmail) return { ...e, contactEmail: c.contactEmail, contactSource: c.contactSource };
+      const found = await withTimeout(findContact({ employerDomain: e.domain, careersUrl: e.careersUrl }), 15_000).catch(() => null);
+      if (found && c) await db().update(schema.companies).set({ contactEmail: found.email, contactSource: found.source }).where(eq(schema.companies.id, c.id)).catch(() => undefined);
+      return { ...e, contactEmail: found?.email ?? null, contactSource: found?.source ?? null };
+    }),
+  );
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`timeout na ${Math.round(ms / 1000)} s`)), ms);

@@ -219,8 +219,8 @@ export async function searchOpenAIJobs(
   if (!cfg.enabled) return { ...base, skipped: "uitgeschakeld in Instellingen" };
   if (!cfg.model) return { ...base, skipped: "geen OpenAI-model gevonden" };
   const call = opts.call ?? defaultCaller;
-  const deadline = started + (opts.deadlineMs ?? 150_000);
-  const target = opts.targetUnique ?? 40;
+  const deadline = started + (opts.deadlineMs ?? 110_000);
+  const target = opts.targetUnique ?? 30;
   const byKey = new Map<string, NormalizedJob>();
   const queries: string[] = [];
   const exploredTitles = new Set<string>();

@@ -150,6 +150,33 @@ function EmployerCard({ e }: { e: EmployerView }) {
           </a>
         )}
       </div>
+      <ContactLine email={e.contactEmail ?? null} source={e.contactSource ?? null} subject={`Kandidaat voor ${e.name}`} />
+    </div>
+  );
+}
+
+/** Contactadres om de kandidaat voor te stellen: klikbaar (mail) en kopieerbaar, met de vindplaats. */
+function ContactLine({ email, source, subject }: { email: string | null; source: string | null; subject: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!email) return <div className="mt-2 text-xs text-ink-faint">Geen mailadres gevonden op de vacature of de website.</div>;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+      <a href={`mailto:${email}?subject=${encodeURIComponent(subject)}`} className="font-medium text-accent hover:underline break-all">
+        ✉ {email}
+      </a>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard?.writeText(email).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+        className="text-xs rounded-md border border-line px-2 py-0.5 hover:bg-paper-soft"
+      >
+        {copied ? "Gekopieerd" : "Kopieer"}
+      </button>
+      {source && <span className="text-xs text-ink-faint">gevonden op: {source}</span>}
     </div>
   );
 }
@@ -536,6 +563,7 @@ function ResultCard({ m }: { m: MatchView }) {
             Vacature openen →
           </a>
         </div>
+        <ContactLine email={m.contactEmail} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} />
       </div>
     </div>
   );
