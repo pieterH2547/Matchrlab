@@ -1,3 +1,4 @@
+import { BE_PLACES, BE_POSTCODES } from "./geo-be";
 /**
  * Grove geolocatie voor Belgische plaatsnamen, zonder externe dienst.
  * Onbekende plaatsen worden niet weggefilterd; het scoringsmodel oordeelt dan.
@@ -146,6 +147,10 @@ const CITIES: Record<string, GeoPoint> = {
 };
 
 const NAMES = Object.keys(CITIES).sort((a, b) => b.length - a.length);
+/** Volledige Belgische lijst als aanvulling (enkel voor geocode, niet voor het herkennen van plaatsen in vrije tekst). */
+const BE_NAMES = Object.keys(BE_PLACES)
+  .filter((n) => !(n in CITIES))
+  .sort((a, b) => b.length - a.length);
 
 /** Zoek de eerste bekende plaatsnaam in een vrije locatietekst. */
 export function geocode(text: string | null | undefined): GeoPoint | null {
@@ -153,6 +158,18 @@ export function geocode(text: string | null | undefined): GeoPoint | null {
   const t = ` ${text.toLowerCase().replace(/[(),/]/g, " ").replace(/\s+/g, " ")} `;
   for (const name of NAMES) {
     if (t.includes(` ${name} `) || t.includes(` ${name}-`) || t.includes(`-${name} `)) return CITIES[name];
+  }
+  for (const name of BE_NAMES) {
+    if (t.includes(` ${name} `) || t.includes(` ${name}-`) || t.includes(`-${name} `)) {
+      const [lat, lon] = BE_PLACES[name];
+      return { lat, lon };
+    }
+  }
+  // Postcode (bv. "2800 Mechelen" of enkel "2800").
+  const pc = t.match(/ ([1-9]\d{3}) /)?.[1];
+  if (pc && BE_POSTCODES[pc]) {
+    const [lat, lon] = BE_POSTCODES[pc];
+    return { lat, lon };
   }
   return null;
 }
