@@ -4,7 +4,7 @@
 import { and, gte, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { LIMITS } from "@/lib/config";
-import { env } from "@/lib/env";
+import { monthlyBudgetEur } from "@/lib/settings";
 
 export function monthKey(d = new Date()): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -28,7 +28,7 @@ export async function monthlySpendEur(): Promise<number> {
 
 export async function budgetExceeded(): Promise<{ exceeded: boolean; spent: number; budget: number }> {
   const spent = await monthlySpendEur();
-  const budget = env.ANTHROPIC_MONTHLY_BUDGET_EUR;
+  const budget = await monthlyBudgetEur();
   return { exceeded: spent >= budget, spent, budget };
 }
 

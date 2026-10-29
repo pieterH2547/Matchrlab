@@ -6,9 +6,9 @@
  * zoeken we VDAB-vacatures via Brave met `site:vdab.be/vindeenjob`, wat
  * per run 2 queries kost en enkel titel + url + snippet oplevert.
  */
-import { env, hasEnv } from "@/lib/env";
 import { fetchJson } from "@/lib/fetch";
-import { braveSearch } from "@/lib/brave";
+import { webSearch } from "@/lib/search";
+import { getSetting } from "@/lib/settings";
 import { LIMITS } from "@/lib/config";
 import type { NormalizedJob, Profile } from "./types";
 
@@ -25,14 +25,16 @@ type AdzunaResult = {
 };
 
 export async function searchAdzuna(profile: Profile): Promise<NormalizedJob[]> {
-  if (!hasEnv("ADZUNA_APP_ID") || !hasEnv("ADZUNA_APP_KEY")) return [];
+  const appId = await getSetting("ADZUNA_APP_ID");
+  const appKey = await getSetting("ADZUNA_APP_KEY");
+  if (!appId || !appKey) return [];
   const queries = profile.job_titles.slice(0, 3);
   const out: NormalizedJob[] = [];
   await Promise.all(
     queries.map(async (what) => {
       const params = new URLSearchParams({
-        app_id: env.ADZUNA_APP_ID ?? "",
-        app_key: env.ADZUNA_APP_KEY ?? "",
+        app_id: appId,
+        app_key: appKey,
         what,
         where: profile.region,
         distance: String(profile.radius_km),
@@ -63,7 +65,7 @@ export async function searchVdabViaBrave(profile: Profile): Promise<{ jobs: Norm
   const out: NormalizedJob[] = [];
   let queries = 0;
   for (const title of profile.job_titles.slice(0, 2)) {
-    const results = await braveSearch(`site:vdab.be/vindeenjob/vacatures ${title} ${profile.region}`, { freshness: "pm" });
+    const results = await webSearch(`site:vdab.be/vindeenjob/vacatures ${title} ${profile.region}`, { freshness: "pm" });
     if (results === null) break;
     queries += 1;
     for (const r of results) {
@@ -106,6 +108,6 @@ export async function searchJobboards(profile: Profile): Promise<JobboardResult>
       return { jobs: [] as NormalizedJob[], queries: 0 };
     }),
   ]);
-  if (!hasEnv("ADZUNA_APP_ID")) notes.push("Adzuna niet geconfigureerd.");
+  if (!(await getSetting("ADZUNA_APP_ID"))) notes.push("Adzuna niet geconfigureerd.");
   return { jobs: [...vdab.jobs, ...adzuna], notes, braveQueries: vdab.queries };
 }

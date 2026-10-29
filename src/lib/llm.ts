@@ -6,12 +6,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
-import { env } from "@/lib/env";
+import { getSetting } from "@/lib/settings";
 
-let _client: Anthropic | null = null;
-function client() {
-  if (!_client) _client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 60_000 });
-  return _client;
+let _client: { key: string; client: Anthropic } | null = null;
+async function client(): Promise<Anthropic> {
+  const key = await getSetting("ANTHROPIC_API_KEY");
+  if (!key) throw new Error("Anthropic API-key ontbreekt. Vul ze in via /admin.");
+  if (!_client || _client.key !== key) _client = { key, client: new Anthropic({ apiKey: key, maxRetries: 2, timeout: 60_000 }) };
+  return _client.client;
 }
 
 /** Houdt de kosten van één run bij, in euro. */
@@ -46,7 +48,7 @@ export type LlmOptions<T extends z.ZodTypeAny> = {
  */
 export async function llmJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
   const model = MODELS[opts.model ?? "cheap"];
-  const res = await client().messages.parse({
+  const res = await (await client()).messages.parse({
     model,
     max_tokens: opts.maxTokens ?? 4096,
     system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],

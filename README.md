@@ -27,16 +27,36 @@ Code: `src/lib/pipeline/` (één bestand per stap, elk met input/output-types), 
 
 De officiële VDAB-vacature-API vereist partnerregistratie op developer.vdab.be (IBM API Connect) en is niet publiek; de data mag bovendien enkel ongewijzigd herpubliceerd worden. Tot die toegang er is zoekt Matchr VDAB-vacatures via Brave met `site:vdab.be/vindeenjob`, wat per run 2 queries kost en enkel titel, url en snippet oplevert. Een echte VDAB-adapter hoort in `src/lib/pipeline/jobboards.ts` naast Adzuna.
 
+## API-keys en instellingen: /admin
+
+Na het aanmelden staat rechtsboven **Instellingen** (`/admin`). Daar plak je de API-keys; ze worden versleuteld opgeslagen in de tabel `settings` (AES-256-GCM, sleutel afgeleid van `APP_PASSWORD`) en nooit meer getoond. Een waarde in `/admin` gaat voor op de omgevingsvariabele met dezelfde naam. Wijzig je `APP_PASSWORD`, dan moeten de keys opnieuw ingevuld worden.
+
+Enkel `DATABASE_URL` en `APP_PASSWORD` moeten in Vercel staan; al de rest kan via `/admin`.
+
+### Zoekmachine
+
+Bedrijfsontdekking en de VDAB-zoektocht gebruiken één zoeklaag (`src/lib/search.ts`) met drie providers, te kiezen onder `SEARCH_PROVIDER`:
+
+| Provider | Key nodig | Limiet | Opmerking |
+| --- | --- | --- | --- |
+| `duckduckgo` | nee | geen officiële | html-endpoint met lite-fallback; standaard als er geen keys zijn |
+| `google` | `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | 100 queries/dag gratis | Custom Search JSON API, Programmable Search Engine op "hele web" |
+| `brave` | `BRAVE_SEARCH_API_KEY` | 2000 queries/maand gratis | maandteller in `usage_counters` |
+
+`auto` (standaard) kiest Brave als die key er is, anders Google, anders DuckDuckGo.
+
 ## Omgevingsvariabelen
 
-Zie `.env.example`. Lokaal in `.env.local`, op Vercel onder Settings → Environment Variables. Nooit waarden committen.
+Zie `.env.example`. Lokaal in `.env.local`, op Vercel onder Settings → Environment Variables. Nooit waarden committen. Alles behalve `DATABASE_URL` en `APP_PASSWORD` kan ook via `/admin`.
 
 | Naam | Verplicht | Waarvoor |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | ja | Haiku en Sonnet |
 | `DATABASE_URL` | ja | Neon Postgres (pooled connection string) |
 | `APP_PASSWORD` | ja | gedeeld teamwachtwoord; ook de sleutel waarmee sessiecookies getekend worden |
-| `BRAVE_SEARCH_API_KEY` | ja voor bedrijfsontdekking en VDAB | gratis tier, 2000 queries/maand |
+| `BRAVE_SEARCH_API_KEY` | nee | zonder Brave of Google zoekt Matchr via DuckDuckGo |
+| `GOOGLE_API_KEY`, `GOOGLE_CSE_ID` | nee | Google Custom Search als alternatief |
+| `SEARCH_PROVIDER` | nee (standaard auto) | auto, duckduckgo, google of brave |
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | nee | zonder deze wordt Adzuna overgeslagen |
 | `JINA_API_KEY` | nee | r.jina.ai werkt zonder key op de gratis tier; een key geeft hogere limieten |
 | `ANTHROPIC_MONTHLY_BUDGET_EUR` | nee (standaard 50) | boven dit maandtotaal worden nieuwe runs geweigerd |
@@ -48,7 +68,7 @@ npm run db:generate   # nieuwe migratie na een schema-wijziging in src/lib/db/sc
 npm run db:migrate    # lokaal; op Vercel draait dit automatisch bij elke build (scripts/migrate-if-configured.mjs)
 ```
 
-Tabellen: `runs`, `messages`, `companies`, `jobs`, `matches`, `page_cache` (TTL 7 dagen), `usage_counters` (Brave-teller per maand). `runs.state` bevat de stapvoortgang en cursors zodat een run hervat kan worden.
+Tabellen: `runs`, `messages`, `companies`, `jobs`, `matches`, `page_cache` (TTL 7 dagen), `usage_counters` (Brave-teller per maand), `settings` (keys en instellingen uit /admin, versleuteld). `runs.state` bevat de stapvoortgang en cursors zodat een run hervat kan worden.
 
 ## Lokaal draaien
 

@@ -9,7 +9,7 @@
 import { fetchPage, isUsefulText, type LinkInfo } from "@/lib/fetch";
 import { detectAts, type AtsDetection } from "@/lib/ats";
 import { llmJson, type CostMeter } from "@/lib/llm";
-import { braveSearch } from "@/lib/brave";
+import { webSearch } from "@/lib/search";
 import { STANDARD_JOB_PATHS } from "@/lib/config";
 import { JobsPagePickSchema } from "./types";
 
@@ -90,7 +90,7 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
 
   // d. Brave
   if (opts.allowBrave) {
-    const results = await braveSearch(`site:${domain} vacature OR vacatures OR jobs`, { count: 5 });
+    const results = await webSearch(`site:${domain} vacature OR vacatures OR jobs`, { count: 5 });
     if (results && results.length) {
       for (const r of results.slice(0, 2)) {
         if (tried.has(r.url)) continue;

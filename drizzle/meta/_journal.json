@@ -8,6 +8,13 @@
       "when": 1792669030381,
       "tag": "0000_black_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793286985661,
+      "tag": "0001_legal_jazinda",
+      "breakpoints": true
     }
   ]
 }

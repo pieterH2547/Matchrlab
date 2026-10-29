@@ -3,7 +3,7 @@ import { requireSession } from "@/lib/session";
 import { parseCv } from "@/lib/pipeline/cv";
 import { BudgetError, createFollowupRun, createRun, listRuns, weekStats } from "@/lib/runs";
 import { braveQueriesUsedThisMonth, monthlySpendEur } from "@/lib/budget";
-import { env } from "@/lib/env";
+import { monthlyBudgetEur } from "@/lib/settings";
 import type { Profile } from "@/lib/pipeline/types";
 
 export const maxDuration = 60;
@@ -13,8 +13,8 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
 export async function GET() {
   try {
     const session = await requireSession();
-    const [runs, week, spent, brave] = await Promise.all([listRuns(), weekStats(session.name), monthlySpendEur(), braveQueriesUsedThisMonth()]);
-    return NextResponse.json({ runs, me: session.name, week, month: { spent, budget: env.ANTHROPIC_MONTHLY_BUDGET_EUR, braveQueries: brave } });
+    const [runs, week, spent, brave, budget] = await Promise.all([listRuns(), weekStats(session.name), monthlySpendEur(), braveQueriesUsedThisMonth(), monthlyBudgetEur()]);
+    return NextResponse.json({ runs, me: session.name, week, month: { spent, budget, braveQueries: brave } });
   } catch (e) {
     return errorResponse(e);
   }

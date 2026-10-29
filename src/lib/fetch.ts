@@ -5,8 +5,8 @@
 import * as cheerio from "cheerio";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
+import { getSetting } from "@/lib/settings";
 import { LIMITS } from "@/lib/config";
-import { env, hasEnv } from "@/lib/env";
 
 const UA = "Mozilla/5.0 (compatible; MatchrBot/0.1; +https://recruitrlab.be) Chrome/120 Safari/537.36";
 
@@ -144,7 +144,8 @@ async function writeCache(url: string, status: number, text: string) {
 /** Jina Reader: haalt een JS-shell op als leesbare tekst. Gratis tier werkt zonder key; key geeft hogere limieten. */
 export async function fetchViaJina(url: string): Promise<string | null> {
   const headers: Record<string, string> = { accept: "text/plain", "x-return-format": "text" };
-  if (hasEnv("JINA_API_KEY")) headers.authorization = `Bearer ${env.JINA_API_KEY}`;
+  const jina = await getSetting("JINA_API_KEY");
+  if (jina) headers.authorization = `Bearer ${jina}`;
   const r = await fetchRaw(`https://r.jina.ai/${url}`, { headers });
   if (r.status !== 200 || r.body.length < LIMITS.minUsefulChars) return null;
   return r.body;

@@ -1,0 +1,171 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+type Setting = {
+  key: string;
+  label: string;
+  help: string;
+  url?: string;
+  required?: boolean;
+  options?: string[];
+  secret: boolean;
+  source: "admin" | "env" | "none";
+  value?: string;
+  updatedAt?: string;
+  updatedBy?: string | null;
+};
+
+const GROUPS: { title: string; keys: string[] }[] = [
+  { title: "Verplicht", keys: ["ANTHROPIC_API_KEY"] },
+  { title: "Zoeken op het web (bedrijven ontdekken)", keys: ["SEARCH_PROVIDER", "GOOGLE_API_KEY", "GOOGLE_CSE_ID", "BRAVE_SEARCH_API_KEY"] },
+  { title: "Optioneel", keys: ["ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JINA_API_KEY", "ANTHROPIC_MONTHLY_BUDGET_EUR"] },
+];
+
+export function AdminPanel({ me }: { me: string }) {
+  const [settings, setSettings] = useState<Setting[] | null>(null);
+  const [provider, setProvider] = useState<string>("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ key: string; text: string; ok: boolean } | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/admin/settings", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { settings: Setting[]; provider: string };
+    setSettings(data.settings);
+    setProvider(data.provider);
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => void load(), 0);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  async function save(key: string) {
+    const value = drafts[key] ?? "";
+    setBusy(key);
+    setMsg(null);
+    const res = await fetch("/api/admin/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, value }) });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    setBusy(null);
+    if (!res.ok) {
+      setMsg({ key, text: data.error ?? "Opslaan mislukt.", ok: false });
+      return;
+    }
+    setDrafts((d) => ({ ...d, [key]: "" }));
+    setMsg({ key, text: "Opgeslagen.", ok: true });
+    await load();
+  }
+
+  async function remove(key: string) {
+    setBusy(key);
+    setMsg(null);
+    const res = await fetch("/api/admin/settings", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ key }) });
+    setBusy(null);
+    if (!res.ok) {
+      setMsg({ key, text: "Verwijderen mislukt.", ok: false });
+      return;
+    }
+    setMsg({ key, text: "Verwijderd.", ok: true });
+    await load();
+  }
+
+  if (!settings) return <p className="text-sm text-ink-faint">Laden…</p>;
+  const byKey = new Map(settings.map((s) => [s.key, s]));
+
+  return (
+    <div className="space-y-10">
+      <div className="rounded-lg border border-line bg-paper-soft px-4 py-3 text-sm">
+        Actieve zoekmachine: <span className="font-medium">{provider}</span>
+        {provider === "duckduckgo" && <span className="text-ink-soft"> — werkt zonder key. Vul Google of Brave in voor stabielere resultaten.</span>}
+      </div>
+      {GROUPS.map((g) => (
+        <section key={g.title}>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">{g.title}</h2>
+          <div className="divide-y divide-line border border-line rounded-lg">
+            {g.keys.map((key) => {
+              const s = byKey.get(key);
+              if (!s) return null;
+              const draft = drafts[key] ?? "";
+              return (
+                <div key={key} className="p-4 flex flex-col gap-2">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="font-medium">{s.label}</span>
+                    <code className="text-xs text-ink-faint">{s.key}</code>
+                    <Status s={s} />
+                  </div>
+                  <p className="text-sm text-ink-soft">
+                    {s.help}
+                    {s.url && (
+                      <>
+                        {" "}
+                        <a href={s.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                          Key aanmaken ↗
+                        </a>
+                      </>
+                    )}
+                  </p>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    {s.options ? (
+                      <select
+                        className="border border-line rounded-md px-3 py-2 text-sm bg-white"
+                        value={draft || s.value || s.options[0]}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))}
+                      >
+                        {s.options.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={s.secret ? "password" : "text"}
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={s.secret ? (s.source === "none" ? "Plak de key" : "Plak een nieuwe key om te vervangen") : s.value ?? ""}
+                        value={draft}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))}
+                        className="flex-1 min-w-[240px] border border-line rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-accent"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy === key || (!draft && !s.options)}
+                      onClick={() => save(key)}
+                      className="text-sm rounded-md px-3 py-2 bg-accent text-white disabled:opacity-40"
+                    >
+                      Opslaan
+                    </button>
+                    {s.source === "admin" && (
+                      <button type="button" disabled={busy === key} onClick={() => remove(key)} className="text-sm rounded-md px-3 py-2 border border-line hover:bg-paper-soft">
+                        Verwijderen
+                      </button>
+                    )}
+                    {msg?.key === key && <span className={`text-sm ${msg.ok ? "text-green-700" : "text-red-700"}`}>{msg.text}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+      <p className="text-xs text-ink-faint">Aangemeld als {me}. Keys worden versleuteld met een sleutel afgeleid van het teamwachtwoord; wijzig je dat wachtwoord, dan moeten de keys opnieuw ingevuld worden.</p>
+    </div>
+  );
+}
+
+function Status({ s }: { s: Setting }) {
+  if (s.source === "admin") {
+    const when = s.updatedAt ? new Date(s.updatedAt).toLocaleDateString("nl-BE") : "";
+    return (
+      <span className="text-xs rounded-full px-2 py-0.5 bg-green-50 text-green-800">
+        ingesteld{s.updatedBy ? ` door ${s.updatedBy}` : ""}
+        {when ? ` · ${when}` : ""}
+      </span>
+    );
+  }
+  if (s.source === "env") return <span className="text-xs rounded-full px-2 py-0.5 bg-blue-50 text-blue-800">uit Vercel-omgeving</span>;
+  return <span className={`text-xs rounded-full px-2 py-0.5 ${s.required ? "bg-red-50 text-red-800" : "bg-paper-soft text-ink-faint"}`}>{s.required ? "ontbreekt" : "niet ingesteld"}</span>;
+}

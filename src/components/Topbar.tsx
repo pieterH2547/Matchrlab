@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen }: { onNewRun: () => void; onToggleSidebar: () => void; sidebarOpen: boolean }) {
   return (
     <header className="h-14 shrink-0 border-b border-line flex items-center px-4 gap-3">
@@ -7,6 +9,9 @@ export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen }: { onNewRun: (
       <span className="font-semibold">Matchr</span>
       <span className="text-xs text-ink-faint">RecruitrLAB</span>
       <div className="ml-auto flex items-center gap-2">
+        <Link href="/admin" className="text-sm text-ink-soft hover:text-ink px-2 py-1.5">
+          Instellingen
+        </Link>
         <button type="button" onClick={onNewRun} className="text-sm border border-line rounded-md px-3 py-1.5 hover:bg-paper-soft">
           Nieuwe run
         </button>

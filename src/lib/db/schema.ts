@@ -131,3 +131,12 @@ export type Job = typeof jobs.$inferSelect;
 export type Company = typeof companies.$inferSelect;
 export type Match = typeof matches.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+
+/** Instellingen en API-keys die via /admin ingevuld worden. Geheime waarden staan versleuteld (AES-256-GCM). */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  secret: integer("secret").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedBy: text("updated_by"),
+});

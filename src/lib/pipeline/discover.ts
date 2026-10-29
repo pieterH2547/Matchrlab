@@ -3,7 +3,7 @@
  * resultaten worden unieke bedrijfsdomeinen (max 80), zonder jobboards e.d.
  */
 import { llmJson, type CostMeter } from "@/lib/llm";
-import { braveSearch, braveAvailable } from "@/lib/brave";
+import { webSearch, searchAvailable, resolveProvider } from "@/lib/search";
 import { isBlockedDomain, registrableDomain } from "@/lib/blocklist";
 import { LIMITS } from "@/lib/config";
 import { DiscoveryQueriesSchema, type Profile } from "./types";
@@ -61,15 +61,15 @@ export function domainsFromResults(urls: string[], exclude: Set<string> = new Se
 }
 
 export async function discoverCompanies(profile: Profile, meter: CostMeter, opts: { exclude?: Set<string>; maxQueries?: number } = {}): Promise<DiscoveryResult> {
-  if (!braveAvailable()) {
-    return { domains: [], queries: [], braveQueries: 0, note: "Brave Search niet geconfigureerd; bedrijfsontdekking overgeslagen." };
+  if (!searchAvailable()) {
+    return { domains: [], queries: [], braveQueries: 0, note: "Geen zoekmachine beschikbaar; bedrijfsontdekking overgeslagen." };
   }
   const queries = (await generateDiscoveryQueries(profile, meter)).slice(0, opts.maxQueries ?? 8);
   const urls: string[] = [];
   let braveQueries = 0;
   let limitHit = false;
   for (const q of queries) {
-    const results = await braveSearch(q);
+    const results = await webSearch(q);
     if (results === null) {
       limitHit = true;
       break;
@@ -78,5 +78,5 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
     for (const r of results) urls.push(r.url);
   }
   const domains = domainsFromResults(urls, opts.exclude);
-  return { domains, queries, braveQueries, note: limitHit ? "Brave-maandlimiet bereikt; minder bedrijven ontdekt." : undefined };
+  return { domains, queries, braveQueries, note: limitHit ? `Zoeklimiet van ${await resolveProvider()} bereikt; minder bedrijven ontdekt.` : undefined };
 }
