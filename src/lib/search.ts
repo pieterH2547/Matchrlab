@@ -15,11 +15,12 @@ import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
 
 export type SearchResult = { url: string; title: string; description: string };
-export type SearchProvider = "linkup" | "tavily" | "exa" | "brave" | "anthropic";
+export type SearchProvider = "serper" | "linkup" | "tavily" | "exa" | "brave" | "anthropic";
 export type SearchOptions = { count?: number; freshness?: "pw" | "pm" | "py" };
 
-const ORDER: SearchProvider[] = ["linkup", "tavily", "exa", "brave", "anthropic"];
-const KEY: Record<SearchProvider, "LINKUP_API_KEY" | "TAVILY_API_KEY" | "EXA_API_KEY" | "BRAVE_SEARCH_API_KEY" | "ANTHROPIC_API_KEY"> = {
+const ORDER: SearchProvider[] = ["serper", "linkup", "tavily", "exa", "brave", "anthropic"];
+const KEY: Record<SearchProvider, "SERPER_API_KEY" | "LINKUP_API_KEY" | "TAVILY_API_KEY" | "EXA_API_KEY" | "BRAVE_SEARCH_API_KEY" | "ANTHROPIC_API_KEY"> = {
+  serper: "SERPER_API_KEY",
   linkup: "LINKUP_API_KEY",
   tavily: "TAVILY_API_KEY",
   exa: "EXA_API_KEY",
@@ -95,6 +96,7 @@ export const SEARCH_PROVIDERS = ORDER;
 async function runProvider(p: SearchProvider, query: string, opts: SearchOptions): Promise<SearchResult[] | null> {
   const key = await getSetting(KEY[p]);
   if (!key) return null;
+  if (p === "serper") return serperSearch(key, query, opts);
   if (p === "linkup") return linkupSearch(key, query, opts);
   if (p === "tavily") return tavilySearch(key, query, opts);
   if (p === "exa") return exaSearch(key, query, opts);
@@ -133,6 +135,33 @@ function mapResults(list: unknown): SearchResult[] {
       description: (r.content ?? r.snippet ?? r.description ?? r.text ?? "").replace(/\s+/g, " ").trim().slice(0, 400),
     }))
     .filter((r) => r.url);
+}
+
+/** Serper: echte Google-resultaten voor België, in het Nederlands. */
+async function serperSearch(key: string, query: string, opts: SearchOptions): Promise<SearchResult[] | null> {
+  const body: Record<string, unknown> = { q: query, gl: "be", hl: "nl", num: Math.min(opts.count ?? 10, 20) };
+  if (opts.freshness) body.tbs = opts.freshness === "pw" ? "qdr:w" : opts.freshness === "pm" ? "qdr:m" : "qdr:y";
+  const data = (await postJson("https://google.serper.dev/search", body, { "x-api-key": key })) as { organic?: unknown } | null;
+  return data ? mapResults(data.organic) : null;
+}
+
+export type PlaceResult = { name: string; website: string; address: string; category: string };
+
+/**
+ * Google Maps via Serper: lokale bedrijven met hun website, bv. "boekhoudkantoor Mechelen".
+ * De beste bron om werkgevers in een regio te vinden. Geeft null zonder Serper-key.
+ */
+export async function placesSearch(query: string): Promise<PlaceResult[] | null> {
+  const key = await getSetting("SERPER_API_KEY");
+  if (!key) return null;
+  const data = (await postJson("https://google.serper.dev/places", { q: query, gl: "be", hl: "nl" }, { "x-api-key": key })) as {
+    places?: { title?: string; website?: string; address?: string; category?: string; type?: string }[];
+  } | null;
+  if (!data) return null;
+  await recordSearches(1).catch(() => undefined);
+  return (data.places ?? [])
+    .filter((p) => p.website && /^https?:\/\//.test(p.website))
+    .map((p) => ({ name: (p.title ?? "").trim(), website: p.website!, address: (p.address ?? "").trim(), category: (p.category ?? p.type ?? "").trim() }));
 }
 
 async function linkupSearch(key: string, query: string, opts: SearchOptions): Promise<SearchResult[] | null> {

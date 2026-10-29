@@ -3,7 +3,8 @@
  * resultaten worden unieke bedrijfsdomeinen (max 80), zonder jobboards e.d.
  */
 import { llmJson, type CostMeter } from "@/lib/llm";
-import { webSearch, searchAvailable, resolveProvider } from "@/lib/search";
+import { webSearch, searchAvailable, resolveProvider, placesSearch } from "@/lib/search";
+import { getSetting } from "@/lib/settings";
 import { isBlockedDomain, registrableDomain } from "@/lib/blocklist";
 import { LIMITS } from "@/lib/config";
 import { DiscoveryQueriesSchema, type Profile } from "./types";
@@ -12,6 +13,7 @@ const SYSTEM = `Je helpt een recruiter bedrijven te vinden die een bepaald profi
 Bedenk zoekopdrachten voor een webzoekmachine die lijsten of websites van concrete werkgevers opleveren,
 niet van jobboards of interimkantoren.
 
+Schrijf ze zo dat ze ook in Google Maps werken: een soort bedrijf + een gemeente, bv. "boekhoudkantoor Mechelen".
 Goede voorbeelden: "maakbedrijven ploegenwerk regio Mechelen", "chemiebedrijf Willebroek productie",
 "verzekeringsmakelaar Oost-Vlaanderen 20-200 medewerkers", "voedingsbedrijf Puurs vacatures productie".
 Slechte voorbeelden: "vacature procesoperator" (geeft jobboards), "jobs Mechelen".
@@ -67,13 +69,18 @@ export function domainsFromResults(urls: string[], exclude: Set<string> = new Se
 }
 
 export async function discoverCompanies(profile: Profile, meter: CostMeter, opts: { exclude?: Set<string>; maxQueries?: number } = {}): Promise<DiscoveryResult> {
-  if (!searchAvailable() || (await resolveProvider()) === "geen") {
+  if (!searchAvailable() || ((await resolveProvider()) === "geen" && !(await getSetting("SERPER_API_KEY")))) {
     return { domains: [], queries: [], braveQueries: 0, note: "Geen zoekmachine beschikbaar; bedrijfsontdekking overgeslagen." };
   }
   const queries = (await generateDiscoveryQueries(profile, meter)).slice(0, opts.maxQueries ?? 8);
   const urls: string[] = [];
   let braveQueries = 0;
   let limitHit = false;
+  // 1. Google Maps (Serper): lokale werkgevers met website, gericht op de regio. Parallel, max 5 opdrachten.
+  const placeHits = await Promise.all(queries.slice(0, 5).map((q) => placesSearch(q).catch(() => null)));
+  for (const hits of placeHits) for (const p of hits ?? []) urls.push(p.website);
+  braveQueries += placeHits.filter((h) => h !== null).length;
+  // 2. Webzoekopdrachten voor de rest (en als er geen Serper is).
   for (const q of queries) {
     const results = await webSearch(q);
     if (results === null) {
@@ -87,6 +94,6 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
   const provider = await resolveProvider();
   let note: string | undefined;
   if (limitHit) note = `Zoeklimiet van ${provider} bereikt; minder bedrijven ontdekt.`;
-  else if (provider === "geen") note = "Geen zoekmachine ingesteld; bedrijfsontdekking overgeslagen. Vul Linkup, Tavily of Exa in via Instellingen.";
+  else if (provider === "geen") note = "Geen zoekmachine ingesteld; bedrijfsontdekking overgeslagen. Vul Serper of Linkup in via Instellingen.";
   return { domains, queries, braveQueries, note };
 }

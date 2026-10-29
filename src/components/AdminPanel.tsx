@@ -20,7 +20,9 @@ type ToolRow = {
 /** De tools die je in Matchr zelf beheert. Eén regel per tool. */
 const TOOLS: ToolRow[] = [
   { id: "openai", name: "OpenAI", domain: "openai.com", what: "De AI: leest het cv, leest vacatures uit en scoort ze.", fields: [{ key: "OPENAI_API_KEY" }], url: "https://platform.openai.com/api-keys", test: "openai", required: true },
-  { id: "linkup", name: "Linkup", domain: "linkup.so", what: "Zoekt bedrijven en vacatures op het web. Eerste keuze, gratis.", fields: [{ key: "LINKUP_API_KEY" }], url: "https://app.linkup.so/api-keys", test: "linkup" },
+  { id: "serper", name: "Serper (Google + Google Maps)", domain: "serper.dev", what: "Google en Google Maps: vindt lokale werkgevers met hun website. Sterkste bron, 2.500 gratis.", fields: [{ key: "SERPER_API_KEY" }], url: "https://serper.dev/api-keys", test: "serper" },
+  { id: "serpapi", name: "SerpApi (Google Jobs)", domain: "serpapi.com", what: "Vacatures die Google van alle sites verzamelt. Gratis ±100–250 per maand.", fields: [{ key: "SERPAPI_API_KEY" }], url: "https://serpapi.com/manage-api-key", test: "googlejobs" },
+  { id: "linkup", name: "Linkup", domain: "linkup.so", what: "Reserve-zoekmachine als Serper op is. Gratis.", fields: [{ key: "LINKUP_API_KEY" }], url: "https://app.linkup.so/api-keys", test: "linkup" },
   { id: "tavily", name: "Tavily", domain: "tavily.com", what: "Reserve-zoekmachine als Linkup op is. Gratis.", fields: [{ key: "TAVILY_API_KEY" }], url: "https://app.tavily.com", test: "tavily" },
   { id: "exa", name: "Exa", domain: "exa.ai", what: "Tweede reserve-zoekmachine. Gratis.", fields: [{ key: "EXA_API_KEY" }], url: "https://dashboard.exa.ai/api-keys", test: "exa" },
   { id: "jooble", name: "Jooble", domain: "jooble.org", what: "Vacaturebank. Key per mail na aanvraag op be.jooble.org.", fields: [{ key: "JOOBLE_API_KEY" }], url: "https://be.jooble.org/api/about", test: "jooble" },

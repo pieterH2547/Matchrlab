@@ -25,12 +25,13 @@ type Step = { n: number; title: string; short: string; what: string; tools: Tool
 type Ctx = { has: (key: string) => boolean; value: (key: string) => string | undefined; ai: AiInfo | null };
 
 const SEARCH_ALL: Tool[] = [
+  { name: "Serper (Google)", key: "SERPER_API_KEY", test: "serper", domain: "serper.dev" },
   { name: "Linkup", key: "LINKUP_API_KEY", test: "linkup", domain: "linkup.so" },
   { name: "Tavily", key: "TAVILY_API_KEY", test: "tavily", domain: "tavily.com" },
   { name: "Exa", key: "EXA_API_KEY", test: "exa", domain: "exa.ai" },
 ];
 
-/** Zoekketen in de echte volgorde: Linkup, dan Tavily, dan Exa. */
+/** Zoekketen in de echte volgorde: Serper, dan Linkup, Tavily, Exa. */
 function searchChain(ctx: Ctx): Tool[] {
   let rank = 0;
   return SEARCH_ALL.map((t) => {
@@ -68,6 +69,7 @@ function buildSteps(ctx: Ctx): Step[] {
       short: "Jobboards",
       what: "Zoekt vacatures op functietitel en regio in de jobboards die ingesteld zijn.",
       tools: [
+        on({ name: "Google Jobs", key: "SERPAPI_API_KEY", test: "googlejobs", domain: "serpapi.com" }),
         on({ name: "Adzuna", key: "ADZUNA_APP_ID", test: "adzuna", domain: "adzuna.be" }),
         on({ name: "Jooble", key: "JOOBLE_API_KEY", test: "jooble", domain: "jooble.org" }),
         { name: "VDAB", domain: "vdab.be", active: chainActive, note: chainActive ? "via de zoekketen" : "heeft een zoekmachine nodig" },
@@ -78,8 +80,8 @@ function buildSteps(ctx: Ctx): Step[] {
       n: 3,
       title: "Bedrijven ontdekken",
       short: "Bedrijven vinden",
-      what: `${ai} bedenkt zoekopdrachten naar eindwerkgevers in de regio; de zoekketen haalt bedrijfssites op. Valt een zoekmachine uit, dan neemt de volgende over.`,
-      tools: [...aiTools(ctx, "cheap").filter((t) => t.active), ...chain],
+      what: `${ai} bedenkt zoekopdrachten (soort bedrijf + gemeente). Google Maps geeft de lokale werkgevers met hun website; de zoekketen vult aan. Valt een zoekmachine uit, dan neemt de volgende over.`,
+      tools: [...aiTools(ctx, "cheap").filter((t) => t.active), on({ name: "Google Maps", key: "SERPER_API_KEY", domain: "maps.google.com", note: "lokale werkgevers" }), ...chain],
       rules: ["Enkel gemeenten binnen de straal", "Jobboards, interim-, recruitment- en consultancybureaus: uitgesloten"],
     },
     {

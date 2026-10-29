@@ -251,6 +251,8 @@ function sourceLabel(source: MatchView["source"]): { text: string; cls: string }
       return { text: "Adzuna", cls: "bg-paper-soft text-ink-soft" };
     case "jooble":
       return { text: "Jooble", cls: "bg-paper-soft text-ink-soft" };
+    case "google_jobs":
+      return { text: "Google Jobs", cls: "bg-paper-soft text-ink-soft" };
     default:
       return { text: "Web", cls: "bg-paper-soft text-ink-soft" };
   }

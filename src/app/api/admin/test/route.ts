@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { SEARCH_PROVIDERS, testProvider, type SearchProvider } from "@/lib/search";
-import { searchAdzuna, searchJooble } from "@/lib/pipeline/jobboards";
+import { searchAdzuna, searchJooble, searchGoogleJobs } from "@/lib/pipeline/jobboards";
 import { fetchViaFirecrawl } from "@/lib/fetch";
 import { normalizeProfile } from "@/lib/pipeline/profile";
 import { testAi } from "@/lib/llm";
@@ -39,8 +39,8 @@ export async function GET(request: Request) {
       consent: "onbekend",
       hard_requirements: [],
     });
-    if (tool === "adzuna" || tool === "jooble") {
-      const jobs = tool === "adzuna" ? await searchAdzuna(profile) : await searchJooble(profile);
+    if (tool === "adzuna" || tool === "jooble" || tool === "googlejobs") {
+      const jobs = tool === "adzuna" ? await searchAdzuna(profile) : tool === "jooble" ? await searchJooble(profile) : await searchGoogleJobs(profile);
       return NextResponse.json({ tool, ok: jobs.length > 0, count: jobs.length, ms: Date.now() - t, sample: jobs.slice(0, 3).map((j) => `${j.title} — ${j.companyName ?? ""} — ${j.location ?? ""}`) });
     }
     if (tool === "firecrawl") {

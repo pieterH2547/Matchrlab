@@ -12,6 +12,8 @@ import { env } from "@/lib/env";
 export const SECRET_KEYS = [
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
+  "SERPER_API_KEY",
+  "SERPAPI_API_KEY",
   "LINKUP_API_KEY",
   "TAVILY_API_KEY",
   "EXA_API_KEY",
@@ -35,6 +37,8 @@ export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url
   OPENAI_MODEL_CHEAP: { label: "OpenAI-model", help: "Automatisch: het nieuwste lichte model van je account." },
   OPENAI_MODEL_SCORING: { label: "OpenAI-model voor de scoring", help: "Leeg = hetzelfde als hierboven. Enkel invullen als de scores te grof zijn." },
   SEARCH_PROVIDER: { label: "Zoekmachine vooraan", help: "auto = Linkup, dan Tavily, dan Exa, dan Brave. Is er één op of kapot, dan neemt de volgende over. Claude web search (betalend) enkel als je anthropic kiest.", options: ["auto", "linkup", "tavily", "exa", "brave", "anthropic"] },
+  SERPER_API_KEY: { label: "Serper API-key", help: "Google zoeken en Google Maps.", url: "https://serper.dev/api-keys" },
+  SERPAPI_API_KEY: { label: "SerpApi API-key", help: "Google Jobs.", url: "https://serpapi.com/manage-api-key" },
   LINKUP_API_KEY: { label: "Linkup API-key", help: "Gratis ±4.000 zoekopdrachten per maand met een professioneel e-mailadres. Eerste keuze.", url: "https://app.linkup.so" },
   TAVILY_API_KEY: { label: "Tavily API-key", help: "Gratis 1.000 credits per maand, geen kaart nodig.", url: "https://app.tavily.com" },
   EXA_API_KEY: { label: "Exa API-key", help: "Gratis ±$10 per maand, geen kaart nodig.", url: "https://dashboard.exa.ai/api-keys" },

@@ -138,9 +138,57 @@ export async function searchJooble(profile: Profile): Promise<NormalizedJob[]> {
   return out.slice(0, LIMITS.maxJobsPerBoard);
 }
 
+type GoogleJob = {
+  title?: string;
+  company_name?: string;
+  location?: string;
+  description?: string;
+  job_id?: string;
+  share_link?: string;
+  apply_options?: { title?: string; link?: string }[];
+  detected_extensions?: { schedule_type?: string; posted_at?: string };
+};
+
+/**
+ * Google Jobs via SerpApi: de vacatures die Google van alle sites verzamelt (ook bedrijfssites).
+ * We nemen bij voorkeur de sollicitatielink van de werkgever zelf, niet die van een jobboard.
+ */
+export async function searchGoogleJobs(profile: Profile): Promise<NormalizedJob[]> {
+  const key = await getSetting("SERPAPI_API_KEY");
+  if (!key) return [];
+  const out: NormalizedJob[] = [];
+  await Promise.all(
+    profile.job_titles.slice(0, 2).map(async (title) => {
+      const params = new URLSearchParams({ engine: "google_jobs", q: title, location: `${profile.region}, Belgium`, hl: "nl", gl: "be", api_key: key });
+      const data = await fetchJson<{ jobs_results?: GoogleJob[] }>(`https://serpapi.com/search.json?${params}`);
+      for (const j of data?.jobs_results ?? []) {
+        if (!j.title) continue;
+        if (/interim|tijdelijk|temporary|freelance|uitzend/i.test(j.detected_extensions?.schedule_type ?? "")) continue;
+        const company = (j.company_name ?? "").trim();
+        const companyWord = company.toLowerCase().split(/\s+/)[0] ?? "";
+        const options = j.apply_options ?? [];
+        const own = options.find((o) => o.link && companyWord.length > 2 && o.link.toLowerCase().includes(companyWord));
+        const url = own?.link ?? options[0]?.link ?? j.share_link;
+        if (!url) continue;
+        out.push({
+          source: "google_jobs",
+          externalId: j.job_id,
+          url,
+          title: j.title.trim(),
+          location: j.location ?? "",
+          descriptionText: (j.description ?? "").replace(/\s+/g, " ").slice(0, 1500),
+          companyName: company,
+          raw: { via: options.map((o) => o.title).filter(Boolean).slice(0, 4), posted: j.detected_extensions?.posted_at },
+        });
+      }
+    }),
+  );
+  return out.slice(0, LIMITS.maxJobsPerBoard);
+}
+
 export async function searchJobboards(profile: Profile): Promise<JobboardResult> {
   const notes: string[] = [];
-  const [adzuna, vdab, jooble] = await Promise.all([
+  const [adzuna, vdab, jooble, google] = await Promise.all([
     searchAdzuna(profile).catch(() => {
       notes.push("Adzuna gaf een fout.");
       return [] as NormalizedJob[];
@@ -153,8 +201,12 @@ export async function searchJobboards(profile: Profile): Promise<JobboardResult>
       notes.push("Jooble gaf een fout.");
       return [] as NormalizedJob[];
     }),
+    searchGoogleJobs(profile).catch(() => {
+      notes.push("Google Jobs gaf een fout.");
+      return [] as NormalizedJob[];
+    }),
   ]);
   if (!(await getSetting("ADZUNA_APP_ID"))) notes.push("Adzuna niet geconfigureerd.");
   if (!(await getSetting("JOOBLE_API_KEY"))) notes.push("Jooble niet geconfigureerd.");
-  return { jobs: [...vdab.jobs, ...adzuna, ...jooble], notes, braveQueries: vdab.queries };
+  return { jobs: [...google, ...vdab.jobs, ...adzuna, ...jooble], notes, braveQueries: vdab.queries };
 }

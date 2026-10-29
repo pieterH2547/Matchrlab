@@ -21,7 +21,7 @@ async function AdminWithSession() {
       </header>
       <div className="max-w-3xl mx-auto px-4 py-8">
         <h1 className="text-xl font-semibold mb-1">Instellingen</h1>
-        <p className="text-sm text-ink-soft mb-8">Plak per tool de key en klik Opslaan. Matchr test hem meteen. Enkel OpenAI is verplicht; Linkup is sterk aangeraden.</p>
+        <p className="text-sm text-ink-soft mb-8">Plak per tool de key en klik Opslaan. Matchr test hem meteen. Enkel OpenAI is verplicht; Serper is sterk aangeraden.</p>
         <AdminPanel me={session.name} />
       </div>
     </main>

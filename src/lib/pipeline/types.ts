@@ -92,7 +92,7 @@ export const FollowupSchema = z.object({
 
 /** Genormaliseerde vacature, voor alle bronnen gelijk. */
 export type NormalizedJob = {
-  source: "company_site" | "vdab" | "adzuna" | "jooble" | "brave";
+  source: "company_site" | "vdab" | "adzuna" | "jooble" | "google_jobs" | "brave";
   externalId?: string;
   url: string;
   title: string;
@@ -208,7 +208,7 @@ export type MatchView = {
   company: string;
   location: string;
   url: string;
-  source: "company_site" | "vdab" | "adzuna" | "jooble" | "brave";
+  source: "company_site" | "vdab" | "adzuna" | "jooble" | "google_jobs" | "brave";
   firstSeenAt: string;
   argument: string;
   risk: string;

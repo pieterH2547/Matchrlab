@@ -14,7 +14,7 @@ Een run is een reeks korte stappen. De browser roept `POST /api/runs/:id/step` t
 | --- | --- | --- |
 | 1 Profiel | cv (pdf/docx) + vrije tekst → functietitels, skills, senioriteit, regio + straal, uitsluitingen, 6-8 zoekqueries | Haiku |
 | 2 Jobboards | Adzuna (be-endpoint) en VDAB, parallel. Filter op regio en uitsluitingen vóór enige LLM-call | geen |
-| 3 Bedrijven ontdekken | Haiku bedenkt 5-8 zoekopdrachten ("maakbedrijven ploegenwerk regio Mechelen"), Brave zoekt, resultaten → max 80 unieke domeinen minus de blocklist. Bedrijven die < 7 dagen geleden gecrawld zijn worden overgeslagen; hun bestaande vacatures gaan mee | Haiku |
+| 3 Bedrijven ontdekken | Google Maps (Serper) geeft lokale werkgevers met website; daarna de zoekketen. | Haiku bedenkt 5-8 zoekopdrachten ("maakbedrijven ploegenwerk regio Mechelen"), Brave zoekt, resultaten → max 80 unieke domeinen minus de blocklist. Bedrijven die < 7 dagen geleden gecrawld zijn worden overgeslagen; hun bestaande vacatures gaan mee | Haiku |
 | 4 Jobpagina vinden | per domein, goedkoop-eerst: ATS-detectie → standaardpaden → Haiku kiest uit de homepage-links → Brave `site:domein vacature`. Niets gevonden → `ats = none`, niet opnieuw proberen | Haiku (enkel 4c) |
 | 5 Vacatures extraheren | ATS-feed als die er is, anders Haiku op de paginatekst (gewone fetch, Jina Reader voor JS-shells, alles door `page_cache`). Enkel titels → max 10 detailpagina's | Haiku |
 | 6 Scoren | dedupliceren op url en titel+bedrijf, voorselectie over alles, top-30 krijgt een score op 10 met argument en risico | licht model |
@@ -60,7 +60,8 @@ en neemt de volgende over.
 
 | Provider | Key | Gratis | Opmerking |
 | --- | --- | --- | --- |
-| Linkup | `LINKUP_API_KEY` | ±4.000 zoekopdrachten/maand met professioneel e-mailadres | eerste keuze |
+| Serper (Google) | `SERPER_API_KEY` | 2.500 zoekopdrachten, eenmalig | eerste keuze; ook Google Maps voor lokale werkgevers |
+| Linkup | `LINKUP_API_KEY` | ±4.000 zoekopdrachten/maand met professioneel e-mailadres | |
 | Tavily | `TAVILY_API_KEY` | 1.000 credits/maand | |
 | Exa | `EXA_API_KEY` | ±$10/maand | |
 | Brave | `BRAVE_SEARCH_API_KEY` | $5 tegoed/maand, kaart nodig | optioneel |
@@ -71,7 +72,7 @@ Google Custom Search is gesloten voor nieuwe klanten (sinds 20 januari 2026, sto
 
 ### Vacaturebronnen en pagina's lezen
 
-Adzuna en Jooble (`JOOBLE_API_KEY`, key per landendomein, voor België via be.jooble.org) als jobboards; publieke ATS-feeds
+Google Jobs via SerpApi (`SERPAPI_API_KEY`, gratis ±100–250/maand; sollicitatielink van de werkgever zelf heeft voorrang), Adzuna en Jooble (`JOOBLE_API_KEY`, key per landendomein, voor België via be.jooble.org) als jobboards; publieke ATS-feeds
 zonder key; pagina's via gewone fetch, dan Jina Reader, dan Firecrawl (`FIRECRAWL_API_KEY`, 1.000 credits/maand gratis).
 
 In Instellingen staat de flow per stap met de status van elke tool en een testknop.
