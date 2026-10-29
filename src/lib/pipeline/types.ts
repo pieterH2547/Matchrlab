@@ -117,6 +117,8 @@ export type RunState = {
   /** Domeinen die deze run nog moet bekijken (stap 4/5) en de cursor erin. */
   domains?: string[];
   crawlIndex?: number;
+  /** Domeinen die al bekeken zijn (in welke volgorde ook), zodat een afgebroken stap verdergaat waar hij was. */
+  crawlDone?: string[];
   /** Tellers voor de stap-tekst. */
   companiesWithJobs?: number;
   siteJobsFound?: number;

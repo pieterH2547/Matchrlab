@@ -67,12 +67,17 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
   // b. standaardpaden (plus de interne joblinks die we al zagen; die zijn even goedkoop)
   const tried = new Set<string>();
   const candidates = [...candidateLinks.slice(0, 3).map((l) => l.href), ...STANDARD_JOB_PATHS.map((p) => `https://${domain}${p}`)];
-  for (const url of candidates) {
-    if (tried.has(url)) continue;
-    tried.add(url);
-    const page = await fetchPage(url, { allowJina: true });
-    if (page.status >= 200 && page.status < 300 && isUsefulText(page.text) && JOB_WORDS.test(page.text.slice(0, 3000))) {
-      return { kind: "page", jobsUrl: url, text: page.text, links: page.links, companyName, how: "standard-path" };
+  // Alle kandidaten tegelijk, zonder Jina: een trage of dode site houdt zo niet alles op.
+  const unique = candidates.filter((u) => (tried.has(u) ? false : (tried.add(u), true))).slice(0, 12);
+  const probes = await Promise.all(unique.map((url) => fetchPage(url, { allowJina: false }).then((page) => ({ url, page })).catch(() => null)));
+  const okProbes = probes.filter((p): p is NonNullable<typeof p> => Boolean(p && p.page.status >= 200 && p.page.status < 300));
+  const direct = okProbes.find((p) => isUsefulText(p.page.text) && JOB_WORDS.test(p.page.text.slice(0, 3000)));
+  if (direct) return { kind: "page", jobsUrl: direct.url, text: direct.page.text, links: direct.page.links, companyName, how: "standard-path" };
+  // JavaScript-sites: de pagina bestaat (200) maar is leeg; enkel dan Jina, op max twee kandidaten.
+  for (const p of okProbes.filter((x) => !isUsefulText(x.page.text)).slice(0, 2)) {
+    const page = await fetchPage(p.url, { allowJina: true, noCache: true });
+    if (isUsefulText(page.text) && JOB_WORDS.test(page.text.slice(0, 3000))) {
+      return { kind: "page", jobsUrl: p.url, text: page.text, links: page.links, companyName, how: "standard-path" };
     }
   }
 

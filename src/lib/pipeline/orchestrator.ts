@@ -117,34 +117,41 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
       case "crawl": {
         const profile = run.profile!;
         const domains = state.domains ?? [];
-        let index = state.crawlIndex ?? 0;
+        const done = new Set(state.crawlDone ?? domains.slice(0, state.crawlIndex ?? 0));
+        const todo = domains.filter((d) => !done.has(d));
         const started = Date.now();
         const total = domains.length;
         const report = () => {
           state = setStep(state, "crawl", {
             status: "running",
-            detail: `${index} / ${total} · ${state.companiesWithJobs ?? 0} met open vacatures · ${state.siteJobsFound ?? 0} vacatures`,
+            detail: `${done.size} / ${total} · ${state.companiesWithJobs ?? 0} met open vacatures · ${state.siteJobsFound ?? 0} vacatures`,
           });
           emit({ type: "steps", steps: state.steps });
         };
         report();
-        while (index < total && Date.now() - started < LIMITS.stepTimeBudgetMs) {
-          const batch = domains.slice(index, index + LIMITS.crawlConcurrency);
-          const allowBrave = (state.braveQueriesUsed ?? 0) < LIMITS.braveQueriesPerRun;
-          const results = await Promise.all(batch.map((d) => crawlDomain(d, profile, meter, allowBrave).catch((e: unknown) => ({ domain: d, jobs: [] as Job[], hadJobs: false, braveUsed: false, error: String(e) }))));
-          for (const r of results) {
+        // Pool: tot crawlConcurrency bedrijven tegelijk; na het tijdsbudget starten we geen nieuwe meer.
+        let cursor = 0;
+        const worker = async () => {
+          while (cursor < todo.length && Date.now() - started < LIMITS.stepTimeBudgetMs) {
+            const d = todo[cursor++];
+            const allowSearch = (state.braveQueriesUsed ?? 0) < LIMITS.braveQueriesPerRun;
+            const r = await withTimeout(crawlDomain(d, profile, meter, allowSearch), LIMITS.perDomainTimeoutMs).catch(
+              (e: unknown) => ({ domain: d, jobs: [] as Job[], hadJobs: false, braveUsed: false, error: String(e) }) as CrawlOutcome,
+            );
+            done.add(d);
             if (r.hadJobs) state.companiesWithJobs = (state.companiesWithJobs ?? 0) + 1;
             state.siteJobsFound = (state.siteJobsFound ?? 0) + r.jobs.length;
             state.jobIds = [...(state.jobIds ?? []), ...r.jobs.map((j) => j.id)];
             if (r.braveUsed) state.braveQueriesUsed = (state.braveQueriesUsed ?? 0) + 1;
+            state.crawlDone = Array.from(done);
+            state.crawlIndex = done.size;
+            report();
+            await saveRun(runId, { state });
           }
-          index += batch.length;
-          state.crawlIndex = index;
-          await saveRun(runId, { state });
-          report();
-        }
+        };
+        await Promise.all(Array.from({ length: Math.min(LIMITS.crawlConcurrency, todo.length) }, worker));
         await addCost(runId, meter);
-        if (index >= total) {
+        if (done.size >= total) {
           state = setStep(state, "crawl", { status: "done", detail: `${total} bedrijven · ${state.companiesWithJobs ?? 0} met open vacatures · ${state.siteJobsFound ?? 0} vacatures` });
           await saveRun(runId, { status: "score", state });
           emit({ type: "status", status: "score", state });
@@ -237,6 +244,23 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
     emit({ type: "status", status: "failed", state });
     return "failed";
   }
+}
+
+/** Laat een trage taak niet langer dan `ms` duren. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout na ${Math.round(ms / 1000)} s`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }
 
 type CrawlOutcome = { domain: string; jobs: Job[]; hadJobs: boolean; braveUsed: boolean; error?: string };

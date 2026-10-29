@@ -62,6 +62,7 @@ export function App({ me }: { me: string }) {
       try {
         let status = "profile";
         let guard = 0;
+        let interruptions = 0;
         while (status !== "done" && status !== "failed" && guard++ < 60) {
           status = await runStep(runId, (ev) => {
             if (ev.type === "steps") setThread((t) => t.map((r) => (r.id === runId ? { ...r, state: { ...r.state, steps: ev.steps } } : r)));
@@ -69,7 +70,16 @@ export function App({ me }: { me: string }) {
             if (ev.type === "run" && ev.run) updateRunInThread(ev.run);
             if (ev.type === "error") setError(ev.message);
           });
+          if (status === "continue") {
+            // Stap onderbroken (timeout of netwerk): even wachten en verdergaan waar hij was.
+            if (++interruptions > 8) {
+              setError("De run blijft onderbroken worden. Open hem later opnieuw in de zijbalk om verder te gaan.");
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 1500));
+          }
         }
+        if (guard >= 60 && status !== "done" && status !== "failed") setError("De run duurt ongewoon lang. Open hem opnieuw in de zijbalk om verder te gaan.");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Er ging iets mis.");
       } finally {

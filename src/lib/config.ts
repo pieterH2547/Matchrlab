@@ -49,11 +49,13 @@ export const LIMITS = {
   /** Max tekst (tekens) die we naar het model sturen per pagina. */
   maxPageChars: 12_000,
   /** Tijdsbudget per step-aanroep in ms; daarna geven we de controle terug aan de client. */
-  stepTimeBudgetMs: 45_000,
+  stepTimeBudgetMs: 40_000,
+  /** Max tijd per bedrijf in de crawlstap; trager = overslaan. */
+  perDomainTimeoutMs: 25_000,
   /** Max domeinen parallel crawlen. */
-  crawlConcurrency: 6,
+  crawlConcurrency: 8,
   /** Timeout per HTTP-fetch. */
-  fetchTimeoutMs: 10_000,
+  fetchTimeoutMs: 8_000,
   /** Max bytes per pagina. */
   fetchMaxBytes: 1_500_000,
   /** Minimum tekstlengte voordat we een pagina "bruikbaar" noemen. */

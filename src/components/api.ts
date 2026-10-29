@@ -37,14 +37,18 @@ export type StepEvent =
 
 /** Eén stap uitvoeren en de SSE-events doorgeven. Geeft de eindstatus van de stap terug. */
 export async function runStep(runId: number, onEvent: (e: StepEvent) => void): Promise<string> {
-  const res = await fetch(`/api/runs/${runId}/step`, { method: "POST" });
+  const res = await fetch(`/api/runs/${runId}/step`, { method: "POST" }).catch(() => null);
+  if (!res) return "continue";
+  if (res.status >= 500 || res.status === 504) return "continue";
   if (!res.ok || !res.body) throw new Error("Stap mislukt.");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let finalStatus = "failed";
+  // Breekt de stream af zonder eindstatus (bv. functie-timeout), dan proberen we gewoon opnieuw.
+  let finalStatus = "continue";
   for (;;) {
-    const { done, value } = await reader.read();
+    const chunk = await reader.read().catch(() => ({ done: true, value: undefined }));
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let idx: number;
