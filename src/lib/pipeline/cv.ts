@@ -8,14 +8,10 @@ export type ParsedCv = { text: string; pages?: number };
 export async function parseCv(file: { name: string; bytes: Buffer }): Promise<ParsedCv> {
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".pdf")) {
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: file.bytes });
-    try {
-      const result = await parser.getText();
-      return { text: clean(result.text), pages: result.total };
-    } finally {
-      await parser.destroy().catch(() => undefined);
-    }
+    // unpdf: pdf.js-build zonder DOM-afhankelijkheden, werkt in Vercel-functies.
+    const { extractText } = await import("unpdf");
+    const result = await extractText(new Uint8Array(file.bytes), { mergePages: true });
+    return { text: clean(result.text), pages: result.totalPages };
   }
   if (lower.endsWith(".docx")) {
     const result = await mammoth.extractRawText({ buffer: file.bytes });
