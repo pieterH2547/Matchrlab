@@ -28,46 +28,32 @@ const SEARCH_ALL: Tool[] = [
   { name: "Linkup", key: "LINKUP_API_KEY", test: "linkup", domain: "linkup.so" },
   { name: "Tavily", key: "TAVILY_API_KEY", test: "tavily", domain: "tavily.com" },
   { name: "Exa", key: "EXA_API_KEY", test: "exa", domain: "exa.ai" },
-  { name: "Brave", key: "BRAVE_SEARCH_API_KEY", test: "brave", domain: "brave.com" },
-  { name: "Claude web search", key: "ANTHROPIC_API_KEY", test: "anthropic", domain: "claude.ai", note: "betalend" },
 ];
 
-/** Zoekketen in de echte volgorde, zoals src/lib/search.ts ze opbouwt. */
+/** Zoekketen in de echte volgorde: Linkup, dan Tavily, dan Exa. */
 function searchChain(ctx: Ctx): Tool[] {
-  const wanted = ctx.value("SEARCH_PROVIDER") ?? "auto";
-  const base = wanted === "anthropic" ? SEARCH_ALL : SEARCH_ALL.filter((t) => t.test !== "anthropic");
-  const first = base.find((t) => t.test === wanted);
-  const ordered = first ? [first, ...base.filter((t) => t !== first)] : base;
   let rank = 0;
-  const out = ordered.map((t) => {
+  return SEARCH_ALL.map((t) => {
     const active = ctx.has(t.key!);
-    return { ...t, active, note: active ? `${++rank}e${t.note ? ` · ${t.note}` : ""}` : t.note };
+    return { ...t, active, note: active ? `${++rank}e` : undefined };
   });
-  // Claude web search tonen we enkel als optie in de details, niet als hij niet gekozen is.
-  return wanted === "anthropic" ? out : [...out, { ...SEARCH_ALL[4], active: false, note: "enkel als je hem kiest" }];
 }
 
-/** De AI zoals hij effectief draait: welke aanbieder, welk model. */
+/** De AI: OpenAI met het automatisch gekozen lichte model. */
 function aiTools(ctx: Ctx, task: "cheap" | "scoring"): Tool[] {
-  const provider = ctx.ai?.provider ?? ctx.value("AI_PROVIDER") ?? "openai";
   const model = ctx.ai?.effective[task];
-  const openai: Tool = { name: model ? `OpenAI · ${model}` : "OpenAI", key: "OPENAI_API_KEY", domain: "openai.com", test: task === "cheap" ? "openai" : undefined };
-  const claude: Tool = { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: task === "cheap" ? "claude" : undefined };
-  if (provider === "anthropic") return [{ ...claude, active: ctx.has("ANTHROPIC_API_KEY") }, { ...openai, active: false, note: "niet gekozen" }];
-  if (provider === "auto") return [{ ...openai, active: ctx.has("OPENAI_API_KEY") }, { ...claude, active: ctx.has("ANTHROPIC_API_KEY"), note: "reserve" }];
-  return [{ ...openai, active: ctx.has("OPENAI_API_KEY") }, { ...claude, active: false, note: "niet gekozen" }];
+  return [{ name: model ? `OpenAI · ${model}` : "OpenAI", key: "OPENAI_API_KEY", domain: "openai.com", test: task === "cheap" ? "openai" : undefined, active: ctx.has("OPENAI_API_KEY") }];
 }
 
-function aiLabel(ctx: Ctx): string {
-  const p = ctx.ai?.provider ?? ctx.value("AI_PROVIDER") ?? "openai";
-  return p === "anthropic" ? "Claude" : "OpenAI";
+function aiLabel(): string {
+  return "OpenAI";
 }
 
 function buildSteps(ctx: Ctx): Step[] {
   const on = (t: Tool): Tool => ({ ...t, active: t.free || (t.key ? ctx.has(t.key) : true) });
   const chain = searchChain(ctx);
   const chainActive = chain.some((t) => t.active);
-  const ai = aiLabel(ctx);
+  const ai = aiLabel();
   return [
     {
       n: 1,
@@ -254,8 +240,6 @@ function FlowMap({ steps }: { steps: Step[] }) {
   );
 }
 
-type TestResult = { ok: boolean; count: number; ms: number; sample?: string[]; error?: string };
-
 export function AdminFlow({ settings, ai }: { settings: SettingLite[]; ai: AiInfo | null }) {
   const byKey = new Map(settings.map((s) => [s.key, s]));
   const ctx: Ctx = {
@@ -267,22 +251,9 @@ export function AdminFlow({ settings, ai }: { settings: SettingLite[]; ai: AiInf
     ai,
   };
   const steps = buildSteps(ctx);
-  const [tests, setTests] = useState<Record<string, TestResult | "busy">>({});
-
-  async function runTest(tool: string) {
-    setTests((t) => ({ ...t, [tool]: "busy" }));
-    try {
-      const res = await fetch(`/api/admin/test?tool=${encodeURIComponent(tool)}`, { cache: "no-store" });
-      const data = (await res.json()) as TestResult;
-      setTests((t) => ({ ...t, [tool]: res.ok ? data : { ok: false, count: 0, ms: 0, error: data.error ?? `HTTP ${res.status}` } }));
-    } catch {
-      setTests((t) => ({ ...t, [tool]: { ok: false, count: 0, ms: 0, error: "netwerkfout" } }));
-    }
-  }
-
   return (
     <section>
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Hoe een run loopt</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Hoe een run loopt met deze tools</h2>
       <FlowMap steps={steps} />
       <p className="mt-2 mb-5 text-xs text-ink-faint">
         De kaart toont enkel wat nu effectief draait, in de echte volgorde. <span className="inline-block w-2.5 h-2.5 rounded-sm ring-2 ring-green-600 align-middle mx-1" />
@@ -301,23 +272,12 @@ export function AdminFlow({ settings, ai }: { settings: SettingLite[]; ai: AiInf
               <div className="mt-3 ml-9 flex flex-wrap gap-2">
                 {step.tools.map((tool) => {
                   const st = toolStatus(tool);
-                  const t = tool.test ? tests[tool.test] : undefined;
                   return (
                     <span key={`${step.n}-${tool.name}`} className={`inline-flex items-center gap-2 text-xs rounded-full border px-2.5 py-1 ${st !== "off" ? "border-line bg-paper" : "border-dashed border-line bg-paper-soft text-ink-faint"}`}>
                       <Logo tool={tool} size={18} />
                       <span className={st !== "off" ? "text-ink" : ""}>{tool.name}</span>
                       {tool.note && <span className="text-ink-faint">· {tool.note}</span>}
                       <span className="text-ink-faint">· {st === "free" ? "gratis, altijd aan" : st === "on" ? "actief" : "niet actief"}</span>
-                      {tool.test && tool.key && ctx.has(tool.key) && (
-                        <button type="button" onClick={() => runTest(tool.test!)} disabled={t === "busy"} className="text-accent hover:underline disabled:opacity-50">
-                          {t === "busy" ? "test…" : "test"}
-                        </button>
-                      )}
-                      {t && t !== "busy" && (
-                        <span className={t.ok ? "text-green-700" : "text-red-700"}>
-                          {t.ok ? `ok · ${(t.ms / 1000).toFixed(1)} s${t.count > 1 ? ` · ${t.count} resultaten` : ""}` : `faalt${t.error ? `: ${t.error}` : ""}`}
-                        </span>
-                      )}
                     </span>
                   );
                 })}

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { deleteSetting, isSettingKey, setSetting, settingsStatus, SETTING_INFO } from "@/lib/settings";
 import { resolveProvider } from "@/lib/search";
+import { detectKeyKind } from "@/lib/redact";
+import { SECRET_KEYS } from "@/lib/settings";
 
 /** Instellingen staan open voor iedereen die aangemeld is; keys worden nooit teruggestuurd. */
 async function requireAdmin() {
@@ -35,6 +37,20 @@ export async function PUT(request: Request) {
     const opts = SETTING_INFO[key].options;
     if (opts && !opts.includes(value)) return NextResponse.json({ error: `Kies uit: ${opts.join(", ")}.` }, { status: 400 });
     if (key === "ANTHROPIC_MONTHLY_BUDGET_EUR" && !(Number(value) > 0)) return NextResponse.json({ error: "Budget moet een getal boven 0 zijn." }, { status: 400 });
+    const kind = detectKeyKind(value);
+    const isSecretField = (SECRET_KEYS as readonly string[]).includes(key);
+    // Een key in een gewoon veld (bv. modelnaam) zou onversleuteld en zichtbaar opgeslagen worden: weigeren.
+    if (!isSecretField && kind) {
+      return NextResponse.json({ error: `Dit lijkt een ${kind === "onbekend" ? "" : `${kind}-`}API-key, geen ${SETTING_INFO[key].label.toLowerCase()}. Niet opgeslagen. Plak keys enkel in een key-veld.` }, { status: 400 });
+    }
+    if (key.startsWith("OPENAI_MODEL_") && !/^[a-z0-9][a-z0-9.:_-]{1,63}$/i.test(value)) {
+      return NextResponse.json({ error: "Dat is geen geldige modelnaam (bv. gpt-5-mini). Laat leeg voor automatisch." }, { status: 400 });
+    }
+    // Key in het verkeerde key-veld: bv. een Firecrawl-key bij OpenAI.
+    const expected: Record<string, string> = { OPENAI_API_KEY: "OpenAI", ANTHROPIC_API_KEY: "Anthropic", FIRECRAWL_API_KEY: "Firecrawl", TAVILY_API_KEY: "Tavily", JINA_API_KEY: "Jina" };
+    if (expected[key] && kind && kind !== "onbekend" && kind !== expected[key]) {
+      return NextResponse.json({ error: `Dit lijkt een ${kind}-key, niet een ${expected[key]}-key. Niet opgeslagen: plak ze in het ${kind}-veld.` }, { status: 400 });
+    }
     await setSetting(key, value, session.name);
     return NextResponse.json({ ok: true });
   } catch (e) {

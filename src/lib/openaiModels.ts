@@ -47,10 +47,11 @@ export function pickLightModel(ids: string[]): string | null {
 
 /** Het model dat Matchr effectief gebruikt voor een taak. */
 export async function resolveOpenAIModel(task: "cheap" | "scoring"): Promise<string> {
-  const chosen = await getSetting(task === "scoring" ? "OPENAI_MODEL_SCORING" : "OPENAI_MODEL_CHEAP");
+  const valid = (v: string | undefined) => (v && /^[a-z0-9][a-z0-9.:_-]{1,63}$/i.test(v) && !/^(sk-|fc-|tvly-)/.test(v) ? v : undefined);
+  const chosen = valid(await getSetting(task === "scoring" ? "OPENAI_MODEL_SCORING" : "OPENAI_MODEL_CHEAP"));
   if (chosen) return chosen;
   if (task === "scoring") {
-    const cheap = await getSetting("OPENAI_MODEL_CHEAP");
+    const cheap = valid(await getSetting("OPENAI_MODEL_CHEAP"));
     if (cheap) return cheap;
   }
   return pickLightModel(await listOpenAIModels()) ?? OPENAI_DEFAULT_MODELS.cheap;

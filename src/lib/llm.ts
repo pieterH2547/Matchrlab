@@ -7,6 +7,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import { z as zod } from "zod";
 import { resolveOpenAIModel } from "@/lib/openaiModels";
+import { redactSecrets } from "@/lib/redact";
 import { MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
 import { getSetting } from "@/lib/settings";
 
@@ -144,7 +145,8 @@ async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<
         useSchema = false;
         continue;
       }
-      const err = new Error(`OpenAI gaf HTTP ${res.status} (model ${model}): ${data.error?.message ?? "onbekende fout"}`) as Error & { status?: number };
+      const hint = res.status === 401 ? " Controleer of in Instellingen de OpenAI-key in het veld 'OpenAI API-key' staat." : "";
+      const err = new Error(redactSecrets(`OpenAI gaf HTTP ${res.status}: ${data.error?.message ?? "onbekende fout"}.${hint}`)) as Error & { status?: number };
       err.status = res.status;
       throw err;
     }

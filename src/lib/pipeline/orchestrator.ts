@@ -18,6 +18,7 @@ import { preselect, scoreJobs } from "./score";
 import { prefilterJobs, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
 import { withinRadius } from "@/lib/geo";
 import { isIntermediaryCompany } from "@/lib/blocklist";
+import { redactSecrets } from "@/lib/redact";
 import type { RunState, StepState, NormalizedJob, Profile } from "./types";
 
 export type Emit = (event: { type: "steps"; steps: StepState[] } | { type: "status"; status: Run["status"]; state: RunState } | { type: "error"; message: string }) => void;
@@ -226,7 +227,7 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
         return run.status;
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = redactSecrets(e instanceof Error ? e.message : String(e));
     const current = state.steps.find((s) => s.status === "running");
     if (current) state = setStep(state, current.key, { status: "error", detail: message.slice(0, 160) });
     state.error = message;
