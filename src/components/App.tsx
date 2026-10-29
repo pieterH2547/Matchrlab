@@ -136,11 +136,11 @@ export function App({ me }: { me: string }) {
   const latest = thread[thread.length - 1];
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Topbar onNewRun={newRun} onToggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} />
-      <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        {sidebarOpen && <Sidebar index={index} me={me} activeThreadId={threadId} onOpen={openThread} />}
-        <main className="flex-1 flex flex-col min-w-0">
+    <div className="min-h-screen md:h-screen flex flex-col md:flex-row md:overflow-hidden">
+      {sidebarOpen && <Sidebar index={index} me={me} activeThreadId={threadId} onOpen={openThread} onNewRun={newRun} />}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+        <Topbar onNewRun={newRun} onToggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} title={latest?.candidateName ? `${latest.candidateName}${latest.profile ? ` · ${latest.profile.job_titles[0] ?? ""} · ${latest.profile.region}` : ""}` : null} />
+        <main className="flex-1 flex flex-col min-h-0 min-w-0">
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
             <div className="mx-auto w-full max-w-[760px] py-8">
               {thread.length === 0 && !pendingUser && <EmptyState />}
