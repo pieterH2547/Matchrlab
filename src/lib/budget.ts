@@ -55,6 +55,15 @@ export async function reserveBraveQueries(n: number): Promise<boolean> {
   return true;
 }
 
+/** Telt geslaagde zoekopdrachten van elke zoekmachine voor de maandteller in de zijbalk. */
+export async function recordSearches(n: number): Promise<void> {
+  const month = monthKey();
+  await db()
+    .insert(schema.usageCounters)
+    .values({ month, braveQueries: n })
+    .onConflictDoUpdate({ target: schema.usageCounters.month, set: { braveQueries: sql`${schema.usageCounters.braveQueries} + ${n}` } });
+}
+
 export async function braveQueriesUsedThisMonth(): Promise<number> {
   const rows = await db()
     .select({ n: schema.usageCounters.braveQueries })

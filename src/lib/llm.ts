@@ -19,12 +19,24 @@ async function client(): Promise<Anthropic> {
   return _client.client;
 }
 
+/**
+ * Prijs per miljoen tokens. Exacte match uit de tabel, anders op modelfamilie (mini, nano, luna),
+ * anders een voorzichtige standaard zodat de schatting eerder te hoog dan te laag is.
+ */
+export function priceFor(model: string): { input: number; output: number } {
+  if (PRICES_USD_PER_MTOK[model]) return PRICES_USD_PER_MTOK[model];
+  if (/-nano\b/.test(model)) return { input: 0.05, output: 0.4 };
+  if (/-(mini|luna)\b/.test(model)) return { input: 0.25, output: 2 };
+  if (/haiku/.test(model)) return { input: 1, output: 5 };
+  return { input: 2, output: 10 };
+}
+
 /** Houdt de kosten van één run bij, in euro. */
 export class CostMeter {
   eur = 0;
   calls = 0;
   add(model: string, inputTokens: number, outputTokens: number) {
-    const p = PRICES_USD_PER_MTOK[model] ?? { input: 2, output: 10 };
+    const p = priceFor(model);
     const usd = (inputTokens / 1e6) * p.input + (outputTokens / 1e6) * p.output;
     this.eur += usd * USD_TO_EUR;
     this.calls += 1;

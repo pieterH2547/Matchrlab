@@ -44,7 +44,7 @@ export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url
   JOOBLE_API_KEY: { label: "Jooble API-key", help: "Gratis vacature-API. Vraag een key aan voor België (be.jooble.org).", url: "https://be.jooble.org/api/about" },
   FIRECRAWL_API_KEY: { label: "Firecrawl API-key", help: "Gratis 1.000 credits per maand. Leest jobsites die Jina niet krijgt.", url: "https://www.firecrawl.dev/app/api-keys" },
   JINA_API_KEY: { label: "Jina Reader API-key", help: "Optioneel; werkt ook zonder, met lagere limieten.", url: "https://jina.ai/reader" },
-  ANTHROPIC_MONTHLY_BUDGET_EUR: { label: "Maandbudget (€)", help: "Boven dit bedrag weigert Matchr nieuwe runs." },
+  ANTHROPIC_MONTHLY_BUDGET_EUR: { label: "Maandbudget AI (€)", help: "Boven dit bedrag aan OpenAI-kosten weigert Matchr nieuwe runs." },
 };
 
 function isSecret(key: string): key is SecretKey {

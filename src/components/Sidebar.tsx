@@ -68,7 +68,7 @@ export function Sidebar({ index, me, activeThreadId, onOpen }: { index: RunsInde
         </div>
         {index && (
           <div className="text-ink-faint mt-1">
-            Team deze maand: € {index.month.spent.toFixed(2)} van € {index.month.budget.toFixed(0)} · {index.month.braveQueries} zoekopdrachten
+            Team deze maand: € {index.month.spent.toFixed(2)} van € {index.month.budget.toFixed(0)} aan OpenAI · {index.month.braveQueries} zoekopdrachten (gratis)
           </div>
         )}
       </div>

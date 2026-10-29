@@ -16,7 +16,7 @@ export class BudgetError extends Error {}
 export async function assertBudget() {
   const b = await budgetExceeded();
   if (b.exceeded) {
-    throw new BudgetError(`Het maandbudget van € ${b.budget.toFixed(0)} is op (€ ${b.spent.toFixed(2)} gebruikt). Nieuwe runs zijn geblokkeerd tot volgende maand of tot het budget verhoogd wordt.`);
+    throw new BudgetError(`Het AI-maandbudget van € ${b.budget.toFixed(0)} is op (€ ${b.spent.toFixed(2)} gebruikt). Nieuwe runs zijn geblokkeerd tot volgende maand of tot het budget verhoogd wordt.`);
   }
 }
 

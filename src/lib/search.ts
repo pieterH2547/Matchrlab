@@ -10,7 +10,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELS } from "@/lib/config";
-import { reserveBraveQueries } from "@/lib/budget";
+import { recordSearches, reserveBraveQueries } from "@/lib/budget";
 import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
 
@@ -66,7 +66,11 @@ export async function webSearch(query: string, opts: SearchOptions = {}): Promis
       console.warn(`[search] ${p} gooide een fout: ${e instanceof Error ? e.message : String(e)}`);
       r = null;
     }
-    if (r !== null) return r.filter((x) => /^https?:\/\//.test(x.url)).slice(0, opts.count ?? 20);
+    if (r !== null) {
+      // Brave telt zichzelf al (maandlimiet); de rest tellen we hier.
+      if (p !== "brave") await recordSearches(1).catch(() => undefined);
+      return r.filter((x) => /^https?:\/\//.test(x.url)).slice(0, opts.count ?? 20);
+    }
     cooling.set(p, Date.now() + COOL_MS);
     console.warn(`[search] ${p} faalde; volgende provider`);
   }
