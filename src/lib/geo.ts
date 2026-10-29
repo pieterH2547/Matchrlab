@@ -174,10 +174,14 @@ export function distanceKm(a: GeoPoint, b: GeoPoint): number {
 export function withinRadius(location: string | null | undefined, region: string, radiusKm: number): boolean | null {
   const center = geocode(region);
   if (!center) return null;
+  // Land- en gewestniveau ("België", "Vlaanderen") is geen plaats: onbeslisbaar.
+  if (/\b(belgi[eë]|belgium|vlaanderen|flanders|walloni[eë]|nationaal|heel het land)\b/i.test(location ?? "")) return null;
   const p = geocode(location);
   if (!p) return null;
-  // Provincie- en landniveau zijn te grof om op straal te filteren.
-  const lowered = (location ?? "").toLowerCase();
-  if (/belgi|vlaanderen|provincie/.test(lowered)) return true;
-  return distanceKm(center, p) <= radiusKm + 5;
+  return distanceKm(center, p) <= radiusKm;
+}
+
+/** Strikte variant: onbeslisbaar telt als buiten de regio. Voor jobboards, waar een plaats altijd vermeld hoort te staan. */
+export function strictlyWithinRadius(location: string | null | undefined, region: string, radiusKm: number): boolean {
+  return withinRadius(location, region, radiusKm) === true;
 }

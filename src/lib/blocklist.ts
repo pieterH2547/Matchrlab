@@ -189,6 +189,14 @@ const BLOCKED_FRAGMENTS = ["interim", "jobs", "vacature", "job-", "jobboard", "r
  */
 const INTERMEDIARY_STRONG = /\b(recruitment|recruiting|rekrutering|werving\s*(en|&)\s*selectie|headhunt\w*|executive search|interim(kantoor|bureau)?|uitzend\w*|staffing|detachering|outsourcing|hr[- ]?(consultancy|consulting|dienstverlen\w+|partner)|consultancy|consulting|payroll\w*|sourcing partner|selectiekantoor|talent acquisition)\b/i;
 
+/** Bedrijfsnaam of vacature-url van een tussenpersoon (interim, recruitment, consultancy, detachering)? */
+export function isIntermediaryCompany(name: string | null | undefined, url?: string | null): boolean {
+  if (name && INTERMEDIARY_STRONG.test(name)) return true;
+  if (name && /\b(interim|jobs|staffing|select|recruit|consult|talent|people|hr)\b/i.test(name) && /\b(group|groep|partners?|solutions?|services?|office|bureau|kantoor|agency)\b/i.test(name)) return true;
+  if (url && isBlockedDomain(url)) return true;
+  return false;
+}
+
 export function looksLikeIntermediary(title: string, text: string): { yes: boolean; reason?: string } {
   const t = title.toLowerCase();
   const strongInTitle = t.match(INTERMEDIARY_STRONG);

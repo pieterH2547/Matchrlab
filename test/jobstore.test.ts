@@ -35,14 +35,25 @@ describe("dedupeJobs", () => {
 });
 
 describe("prefilterJobs", () => {
-  it("laat jobs buiten de straal en met uitsluiting in de titel vallen, maar houdt onbekende plaatsen", () => {
+  it("regio is strikt voor jobboards: buiten de straal of onherkenbare plaats valt weg", () => {
     const jobsIn = [
-      { title: "Procesoperator", location: "Willebroek" },
-      { title: "Procesoperator", location: "Hasselt" },
-      { title: "Procesoperator nachtwerk", location: "Mechelen" },
-      { title: "Procesoperator", location: "Ergens-Onbekend" },
-      { title: "Procesoperator", location: "België" },
+      { title: "Procesoperator", location: "Willebroek", source: "vdab" },
+      { title: "Procesoperator", location: "Hasselt", source: "vdab" },
+      { title: "Procesoperator nachtwerk", location: "Mechelen", source: "vdab" },
+      { title: "Procesoperator", location: "Ergens-Onbekend", source: "vdab" },
+      { title: "Procesoperator", location: "België", source: "vdab" },
     ];
-    expect(prefilterJobs(jobsIn, profile).map((j) => j.location)).toEqual(["Willebroek", "Ergens-Onbekend", "België"]);
+    expect(prefilterJobs(jobsIn, profile).map((j) => j.location)).toEqual(["Willebroek"]);
+  });
+
+  it("bedrijfssites: onbekende plaats blijft, buiten de straal valt weg, tussenpersonen vallen weg", () => {
+    const jobsIn = [
+      { title: "Procesoperator", location: "", source: "company_site", companyName: "Chemco nv", url: "https://chemco.be/jobs/1" },
+      { title: "Procesoperator", location: "Hasselt", source: "company_site", companyName: "Chemco nv", url: "https://chemco.be/jobs/2" },
+      { title: "Procesoperator", location: "Mechelen", source: "company_site", companyName: "Accent Jobs", url: "https://accentjobs.be/x" },
+      { title: "Procesoperator", location: "Mechelen", source: "company_site", companyName: "Talent Partners", url: "https://tp.be/x" },
+      { title: "Procesoperator", location: "Mechelen", source: "company_site", companyName: "XYZ Recruitment", url: "https://xyz.be/x" },
+    ];
+    expect(prefilterJobs(jobsIn, profile).map((j) => j.url)).toEqual(["https://chemco.be/jobs/1"]);
   });
 });

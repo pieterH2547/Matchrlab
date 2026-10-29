@@ -16,8 +16,8 @@ Goede voorbeelden: "maakbedrijven ploegenwerk regio Mechelen", "chemiebedrijf Wi
 "verzekeringsmakelaar Oost-Vlaanderen 20-200 medewerkers", "voedingsbedrijf Puurs vacatures productie".
 Slechte voorbeelden: "vacature procesoperator" (geeft jobboards), "jobs Mechelen".
 
-Regels: 5 tot 8 queries, in het Nederlands, elk met een regio of plaats uit of rond de opgegeven regio,
-gevarieerd in sector en deelgemeenten. Geen namen van jobboards of interimkantoren in de query.
+Regels: 5 tot 8 queries, in het Nederlands, elk met een plaats die BINNEN de opgegeven straal rond de regio ligt
+(gebruik de regio zelf en buurgemeenten binnen die straal; nooit steden verder weg), gevarieerd in sector. Geen namen van jobboards of interimkantoren in de query.
 
 Belangrijk: we zoeken uitsluitend EINDWERKGEVERS die mensen aanwerven voor hun eigen werking.
 Nooit zoeken naar recruitmentbureaus, selectiekantoren, interim-, consultancy-, detacherings-,

@@ -16,6 +16,8 @@ import { findJobsPage } from "./findJobsPage";
 import { extractFromAts, extractFromPage } from "./extract";
 import { preselect, scoreJobs } from "./score";
 import { prefilterJobs, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
+import { withinRadius } from "@/lib/geo";
+import { isIntermediaryCompany } from "@/lib/blocklist";
 import type { RunState, StepState, NormalizedJob, Profile } from "./types";
 
 export type Emit = (event: { type: "steps"; steps: StepState[] } | { type: "status"; status: Run["status"]; state: RunState } | { type: "error"; message: string }) => void;
@@ -164,6 +166,10 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
         state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${shortlist.length} naar eindscoring` });
         emit({ type: "steps", steps: state.steps });
         const result = await scoreJobs(profile, shortlist, names, meter);
+        // Laatste harde zeef, los van wat het model vond: buiten de straal of tussenpersoon = weg.
+        result.scored = result.scored.filter(
+          (s) => withinRadius(s.job.location, profile.region, profile.radius_km) !== false && !isIntermediaryCompany(names.get(s.job.id) ?? "", s.job.url),
+        );
         await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
         if (result.scored.length) {
           await db()

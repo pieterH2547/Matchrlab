@@ -5,7 +5,8 @@ import { inArray, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Job } from "@/lib/db/schema";
 import type { NormalizedJob, Profile } from "./types";
-import { withinRadius } from "@/lib/geo";
+import { strictlyWithinRadius, withinRadius } from "@/lib/geo";
+import { isIntermediaryCompany } from "@/lib/blocklist";
 
 export function normalizeUrl(url: string): string {
   try {
@@ -50,11 +51,19 @@ export function dedupeJobs<T extends { url: string; title: string; companyName?:
 }
 
 /** Filter op regio en uitsluitingen, vóór enige LLM-call. */
-export function prefilterJobs<T extends { title: string; location?: string | null; descriptionText?: string | null }>(jobsIn: T[], profile: Profile): T[] {
+export function prefilterJobs<T extends { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string }>(
+  jobsIn: T[],
+  profile: Profile,
+): T[] {
   const exclusions = profile.exclusions.map((e) => e.toLowerCase()).filter((e) => e.length >= 3);
   return jobsIn.filter((j) => {
-    const inRegion = withinRadius(j.location, profile.region, profile.radius_km);
-    if (inRegion === false) return false;
+    // Tussenpersonen nooit: interim, recruitment, consultancy, detachering.
+    if (isIntermediaryCompany(j.companyName, j.url)) return false;
+    // Regio strikt: jobboards vermelden altijd een plaats; buiten de straal of onherkenbaar = weg.
+    // Vacatures van bedrijfssites zonder plaats houden we (het bedrijf is al op regio gevonden).
+    const strict = j.source !== "company_site";
+    const inRegion = strict ? strictlyWithinRadius(j.location, profile.region, profile.radius_km) : withinRadius(j.location, profile.region, profile.radius_km) !== false;
+    if (!inRegion) return false;
     const hay = `${j.title} ${j.descriptionText ?? ""}`.toLowerCase();
     // Enkel uitsluiten als de uitsluiting letterlijk in de titel staat; beschrijvingen
     // vermelden ploegen vaak als optie, dat oordeel laten we aan de scoring.
