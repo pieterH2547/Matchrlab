@@ -75,7 +75,7 @@ let openaiDownUntil = 0;
 function isProviderUnavailable(e: unknown): boolean {
   const status = (e as { status?: number }).status;
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
-  return status === 401 || status === 402 || status === 403 || status === 429 || status === 529 || /credit balance|billing|insufficient|quota|overloaded|api-key ontbreekt/.test(msg);
+  return status === 401 || status === 402 || status === 403 || status === 429 || status === 529 || /credit balance|billing|insufficient|quota|overloaded|api-key ontbreekt|geen openai-key/.test(msg);
 }
 
 async function anthropicJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
