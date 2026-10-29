@@ -17,13 +17,16 @@ export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen, title }: { onNe
       </button>
       {!sidebarOpen && (
         <span className="flex items-center gap-2 mr-2">
-          <span className="inline-block w-5 h-5 rounded-md bg-accent" aria-hidden />
-          <span className="font-semibold text-sm">Matchr</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-navy-sm.png" alt="RecruitrLAB" width={40} height={23} className="h-6 w-auto" />
+          <span className="font-semibold text-sm">
+            Matchr<span className="text-gold">.</span>
+          </span>
         </span>
       )}
       <span className="text-sm text-ink-soft truncate">{title ?? ""}</span>
       {!sidebarOpen && (
-        <button type="button" onClick={onNewRun} className="ml-auto text-sm rounded-md px-3 py-1.5 bg-ink text-white hover:opacity-90">
+        <button type="button" onClick={onNewRun} className="ml-auto text-sm font-semibold rounded-full px-4 py-1.5 bg-gold text-navy hover:bg-gold-deep">
           Nieuwe run
         </button>
       )}

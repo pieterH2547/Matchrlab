@@ -166,9 +166,12 @@ export function App({ me }: { me: string }) {
 
 function EmptyState() {
   return (
-    <div className="text-center text-ink-soft mt-24">
-      <p className="text-lg font-medium text-ink">Laad een cv op en zeg wat je zoekt.</p>
-      <p className="mt-2 text-sm">Matchr zoekt op jobboards en rechtstreeks op de websites van bedrijven die bij het profiel passen.</p>
+    <div className="text-center text-ink-soft mt-20">
+      <p className="eyebrow text-ink-soft">— Vacatures bij rechtstreekse werkgevers · Vlaanderen</p>
+      <h1 className="mt-4 text-4xl md:text-5xl font-bold tracking-tight text-navy leading-[1.05]">
+        Eén cv. De juiste <span className="accent-serif text-[1.08em]">match</span>.
+      </h1>
+      <p className="mt-4 text-[15px] max-w-md mx-auto">Sleep een cv in het veld onderaan. Matchr zoekt op jobboards, Google en rechtstreeks op de sites van werkgevers in de regio, met contactadres erbij.</p>
     </div>
   );
 }

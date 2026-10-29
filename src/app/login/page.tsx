@@ -5,10 +5,15 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2 mb-8">
-          <span className="inline-block w-7 h-7 rounded-md bg-accent" aria-hidden />
-          <span className="text-lg font-semibold">Matchr</span>
-          <span className="text-sm text-ink-faint">RecruitrLAB</span>
+        <div className="flex flex-col items-center text-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-navy-sm.png" alt="RecruitrLAB" width={160} height={92} className="w-40 h-auto" />
+          <h1 className="mt-5 text-3xl font-bold tracking-tight text-navy">
+            Matchr<span className="text-gold">.</span>
+          </h1>
+          <p className="mt-1 text-sm text-ink-soft">
+            De vacaturezoeker van <span className="accent-serif text-base">RecruitrLAB</span>
+          </p>
         </div>
         <Suspense fallback={null}>
           <LoginForm />

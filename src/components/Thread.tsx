@@ -118,7 +118,10 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-2">{title}</h3>
+      <h3 className="eyebrow text-navy mb-3 flex items-center gap-3">
+        <span className="inline-block w-6 h-[2px] bg-gold" aria-hidden />
+        {title}
+      </h3>
       {children}
     </section>
   );
@@ -539,9 +542,9 @@ function ResultCard({ m }: { m: MatchView }) {
   const score10 = Math.round(m.score / 10);
   return (
     <div className="flex gap-4 items-start border border-line rounded-xl p-4 bg-paper transition-shadow hover:shadow-[0_2px_12px_rgba(17,24,39,0.06)]">
-      <div className="mono w-12 h-12 shrink-0 rounded-md bg-accent-soft text-accent flex flex-col items-center justify-center leading-none">
+      <div className="mono w-12 h-12 shrink-0 rounded-lg bg-navy text-white flex flex-col items-center justify-center leading-none">
         <span className="text-lg font-semibold">{score10}</span>
-        <span className="text-[10px]">/10</span>
+        <span className="text-[10px] text-gold">/10</span>
       </div>
       <div className="min-w-0 flex-1">
         <a href={m.url} target="_blank" rel="noopener noreferrer" className="font-medium leading-snug hover:text-accent hover:underline">

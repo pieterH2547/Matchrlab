@@ -9,14 +9,17 @@ async function AdminWithSession() {
   if (!session) redirect("/login");
   return (
     <main className="min-h-screen">
-      <header className="h-14 border-b border-line flex items-center px-4 gap-3">
+      <header className="h-16 bg-navy text-white flex items-center px-5 gap-3">
         <Link href="/" className="flex items-center gap-3">
-          <span className="inline-block w-6 h-6 rounded-md bg-accent" aria-hidden />
-          <span className="font-semibold">Matchr</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-white.png" alt="RecruitrLAB" width={56} height={34} className="h-8 w-auto" />
+          <span className="font-semibold text-[17px]">
+            Matchr<span className="text-gold">.</span>
+          </span>
         </Link>
-        <span className="text-xs text-ink-faint">Instellingen</span>
-        <Link href="/" className="ml-auto text-sm border border-line rounded-md px-3 py-1.5 hover:bg-paper-soft">
-          Terug naar Matchr
+        <span className="eyebrow text-white/50">Instellingen</span>
+        <Link href="/" className="ml-auto text-sm font-semibold rounded-full px-4 py-1.5 bg-gold text-navy hover:bg-gold-deep">
+          ← Terug naar Matchr
         </Link>
       </header>
       <div className="max-w-3xl mx-auto px-4 py-8">

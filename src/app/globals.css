@@ -1,20 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --accent: #0b57d0;
-  --accent-soft: #e8f0fe;
-  --ink: #111827;
-  --ink-soft: #4b5563;
-  --ink-faint: #9ca3af;
-  --line: #e5e7eb;
+  /* RecruitrLAB-huisstijl (recruitrlab.be): navy, goud, warm papier. */
+  --accent: #1b1845;
+  --accent-soft: #ecebf4;
+  --gold: #febc14;
+  --gold-deep: #e0a410;
+  --gold-soft: #fff4d6;
+  --navy: #1b1845;
+  --navy-2: #26225a;
+  --ink: #1b1845;
+  --ink-soft: #5f5f6b;
+  --ink-faint: #9a98a6;
+  --line: #e8e5dc;
   --paper: #ffffff;
-  --paper-soft: #f6f6f4;
-  --sidebar: #fafaf8;
+  --paper-soft: #f4f2ec;
+  --canvas: #fafaf7;
+  --sidebar: #1b1845;
   --ok: #15803d;
   --warn: #b45309;
   --err: #b91c1c;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", monospace;
+  --font-serif: var(--font-instrument), Georgia, serif;
 }
 
 @theme inline {
@@ -27,17 +35,24 @@
   --color-paper: var(--paper);
   --color-paper-soft: var(--paper-soft);
   --color-sidebar: var(--sidebar);
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+  --color-gold-soft: var(--gold-soft);
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-canvas: var(--canvas);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-err: var(--err);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
 }
 
 html,
 body {
   height: 100%;
-  background: var(--paper);
+  background: var(--canvas);
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -61,6 +76,22 @@ a {
 
 .mono {
   font-family: var(--font-mono);
+}
+
+/* Accentwoord zoals op recruitrlab.be: cursief serif in goud. */
+.accent-serif {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--gold);
+}
+
+/* Kleine kopjes in mono, hoofdletters, ruim gespatieerd. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 @keyframes pulse-dot {
