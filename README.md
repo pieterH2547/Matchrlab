@@ -43,11 +43,12 @@ Bedrijfsontdekking en de VDAB-zoektocht gebruiken één zoeklaag (`src/lib/searc
 
 | Provider | Key nodig | Limiet | Opmerking |
 | --- | --- | --- | --- |
-| `duckduckgo` | nee | geen officiële | html-endpoint met lite-fallback; standaard als er geen keys zijn |
+| `anthropic` | enkel `ANTHROPIC_API_KEY` | ±$0,01 per zoekopdracht | ingebouwde web search van de Anthropic API; standaard als er geen Brave/Google-key is |
+| `duckduckgo` | nee | — | blokkeert Vercel-servers (403); enkel bruikbaar lokaal |
 | `google` | `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | 100 queries/dag gratis | Custom Search JSON API, Programmable Search Engine op "hele web" |
 | `brave` | `BRAVE_SEARCH_API_KEY` | 2000 queries/maand gratis | maandteller in `usage_counters` |
 
-`auto` (standaard) kiest Brave als die key er is, anders Google, anders DuckDuckGo.
+`auto` (standaard) kiest Brave als die key er is, anders Google, anders Anthropic web search, anders DuckDuckGo.
 
 ## Omgevingsvariabelen
 

@@ -82,6 +82,6 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
   let note: string | undefined;
   if (limitHit) note = `Zoeklimiet van ${provider} bereikt; minder bedrijven ontdekt.`;
   else if (braveQueries > 0 && urls.length === 0 && provider === "duckduckgo")
-    note = "DuckDuckGo blokkeert zoekopdrachten vanaf de server. Vul een Brave- of Google-key in via Instellingen om bedrijven te ontdekken.";
+    note = "DuckDuckGo blokkeert zoekopdrachten vanaf de server. Zet de zoekmachine op auto of vul een Brave- of Google-key in via Instellingen.";
   return { domains, queries, braveQueries, note };
 }

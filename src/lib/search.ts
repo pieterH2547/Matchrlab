@@ -2,27 +2,33 @@
  * Eén zoekfunctie, drie providers. Keuze via instelling SEARCH_PROVIDER:
  *  - brave: Brave Search API (gratis tier, maandteller in usage_counters)
  *  - google: Google Custom Search JSON API (100 queries/dag gratis)
- *  - duckduckgo: HTML-endpoint van DuckDuckGo, geen key nodig
- *  - auto (standaard): brave als er een key is, anders google, anders duckduckgo
+ *  - anthropic: de ingebouwde web search van de Anthropic API (zelfde key als de modellen, ±$0,01 per zoekopdracht)
+ *  - duckduckgo: HTML-endpoint van DuckDuckGo, geen key nodig, maar blokkeert Vercel-servers
+ *  - auto (standaard): brave als er een key is, anders google, anders anthropic, anders duckduckgo
  */
+import Anthropic from "@anthropic-ai/sdk";
+import { MODELS } from "@/lib/config";
 import * as cheerio from "cheerio";
 import { reserveBraveQueries } from "@/lib/budget";
 import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
 
 export type SearchResult = { url: string; title: string; description: string };
-export type SearchProvider = "brave" | "google" | "duckduckgo";
+export type SearchProvider = "brave" | "google" | "anthropic" | "duckduckgo";
 export type SearchOptions = { count?: number; freshness?: "pw" | "pm" | "py" };
 
 export async function resolveProvider(): Promise<SearchProvider> {
   const wanted = (await getSetting("SEARCH_PROVIDER")) ?? "auto";
   const brave = await getSetting("BRAVE_SEARCH_API_KEY");
   const google = (await getSetting("GOOGLE_API_KEY")) && (await getSetting("GOOGLE_CSE_ID"));
+  const anthropic = await getSetting("ANTHROPIC_API_KEY");
   if (wanted === "brave" && brave) return "brave";
   if (wanted === "google" && google) return "google";
+  if (wanted === "anthropic" && anthropic) return "anthropic";
   if (wanted === "duckduckgo") return "duckduckgo";
   if (brave) return "brave";
   if (google) return "google";
+  if (anthropic) return "anthropic";
   return "duckduckgo";
 }
 
@@ -39,6 +45,7 @@ export async function webSearch(query: string, opts: SearchOptions = {}): Promis
   const provider = await resolveProvider();
   if (provider === "brave") return braveSearch(query, opts);
   if (provider === "google") return googleSearch(query, opts);
+  if (provider === "anthropic") return anthropicSearch(query, opts);
   return duckduckgoSearch(query, opts);
 }
 
@@ -86,6 +93,42 @@ async function googleSearch(query: string, opts: SearchOptions): Promise<SearchR
     if (items.length < 10) break;
   }
   return out;
+}
+
+/**
+ * Web search via de Anthropic API: het model doet precies één zoekopdracht en we
+ * lezen de resultaten uit het tool-resultaat. Het antwoord zelf gooien we weg.
+ */
+async function anthropicSearch(query: string, opts: SearchOptions): Promise<SearchResult[] | null> {
+  const key = await getSetting("ANTHROPIC_API_KEY");
+  if (!key) return null;
+  const client = new Anthropic({ apiKey: key, maxRetries: 1, timeout: 45_000 });
+  const freshness = opts.freshness === "pw" ? " (enkel resultaten van de voorbije week)" : opts.freshness === "pm" ? " (enkel resultaten van de voorbije maand)" : "";
+  let res;
+  try {
+    res = await client.messages.create({
+      model: MODELS.cheap,
+      max_tokens: 200,
+      system: "Je bent een zoekrobot. Voer exact één web_search uit met de opgegeven zoekopdracht, letterlijk, en antwoord daarna enkel met het woord: ok",
+      messages: [{ role: "user", content: `Zoekopdracht: ${query}${freshness}` }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1, user_location: { type: "approximate", country: "BE", timezone: "Europe/Brussels" } }],
+    });
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 429) return null;
+    console.warn(`[search] anthropic web search faalde: ${e instanceof Error ? e.message : String(e)}`);
+    return [];
+  }
+  const out: SearchResult[] = [];
+  for (const block of res.content) {
+    if (block.type !== "web_search_tool_result") continue;
+    if (!Array.isArray(block.content)) continue;
+    for (const r of block.content) {
+      if (r.type !== "web_search_result") continue;
+      out.push({ url: r.url, title: r.title, description: r.page_age ? `(${r.page_age})` : "" });
+    }
+  }
+  return out.slice(0, opts.count ?? 20);
 }
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";

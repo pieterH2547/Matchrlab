@@ -26,7 +26,7 @@ export type SettingKey = SecretKey | ConfigKey;
 
 export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url?: string; required?: boolean; options?: string[] }> = {
   ANTHROPIC_API_KEY: { label: "Anthropic API-key", help: "Haiku en Sonnet. Zonder deze key doet Matchr niets.", url: "https://console.anthropic.com/settings/keys", required: true },
-  SEARCH_PROVIDER: { label: "Zoekmachine", help: "auto = Brave als die key er is, anders Google, anders DuckDuckGo (geen key nodig).", options: ["auto", "duckduckgo", "google", "brave"] },
+  SEARCH_PROVIDER: { label: "Zoekmachine", help: "auto = Brave als die key er is, anders Google, anders Claude web search (zelfde key als de modellen, ±€0,01 per zoekopdracht). DuckDuckGo werkt niet vanaf Vercel.", options: ["auto", "anthropic", "google", "brave", "duckduckgo"] },
   GOOGLE_API_KEY: { label: "Google API-key", help: "Custom Search JSON API; gratis tot 100 zoekopdrachten per dag.", url: "https://console.cloud.google.com/apis/credentials" },
   GOOGLE_CSE_ID: { label: "Google zoekmachine-ID (cx)", help: "Programmable Search Engine die het hele web doorzoekt.", url: "https://programmablesearchengine.google.com/controlpanel/all" },
   BRAVE_SEARCH_API_KEY: { label: "Brave Search API-key", help: "Gratis tier, 2000 zoekopdrachten per maand.", url: "https://api-dashboard.search.brave.com/app/keys" },

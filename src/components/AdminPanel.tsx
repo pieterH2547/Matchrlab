@@ -78,7 +78,8 @@ export function AdminPanel({ me }: { me: string }) {
     <div className="space-y-10">
       <div className="rounded-lg border border-line bg-paper-soft px-4 py-3 text-sm">
         Actieve zoekmachine: <span className="font-medium">{provider}</span>
-        {provider === "duckduckgo" && <span className="text-ink-soft"> — werkt zonder key. Vul Google of Brave in voor stabielere resultaten.</span>}
+        {provider === "anthropic" && <span className="text-ink-soft"> — Claude zoekt zelf, via je Anthropic-key (±€0,01 per zoekopdracht). Plak een Brave-key voor gratis zoeken.</span>}
+        {provider === "duckduckgo" && <span className="text-ink-soft"> — werkt niet vanaf Vercel. Zet de zoekmachine op auto.</span>}
       </div>
       {GROUPS.map((g) => (
         <section key={g.title}>
