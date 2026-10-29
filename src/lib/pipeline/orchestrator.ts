@@ -167,9 +167,17 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
         emit({ type: "steps", steps: state.steps });
         const result = await scoreJobs(profile, shortlist, names, meter);
         // Laatste harde zeef, los van wat het model vond: buiten de straal of tussenpersoon = weg.
+        const scoredCount = result.scored.length;
         result.scored = result.scored.filter(
-          (s) => withinRadius(s.job.location, profile.region, profile.radius_km) !== false && !isIntermediaryCompany(names.get(s.job.id) ?? "", s.job.url),
+          (s) =>
+            s.score >= LIMITS.minScoreToShow &&
+            withinRadius(s.job.location, profile.region, profile.radius_km) !== false &&
+            !isIntermediaryCompany(names.get(s.job.id) ?? "", s.job.url),
         );
+        if (scoredCount > 0 && result.scored.length === 0) {
+          result.intro = `Ik bekeek ${scoredCount} vacatures, maar geen enkele past goed genoeg. Verruim de regio of probeer een verwante functietitel.`;
+          result.followups = ["Zoek in een grotere straal", "Zoek met een verwante functietitel"];
+        }
         await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
         if (result.scored.length) {
           await db()
@@ -177,7 +185,7 @@ export async function advanceRun(runId: number, emit: Emit): Promise<Run["status
             .values(result.scored.map((s, i) => ({ runId, jobId: s.job.id, score: s.score, reason: s.reason, rank: i + 1 })));
         }
         state = {
-          ...setStep(state, "score", { status: "done", detail: `${result.scored.length} vacatures gescoord` }),
+          ...setStep(state, "score", { status: "done", detail: `${scoredCount} gescoord · ${result.scored.length} passend` }),
           intro: result.intro,
           followups: result.followups,
         };

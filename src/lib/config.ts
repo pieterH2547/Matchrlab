@@ -20,6 +20,8 @@ export const PRICES_USD_PER_MTOK: Record<string, { input: number; output: number
 export const USD_TO_EUR = 0.92;
 
 export const LIMITS = {
+  /** Vacatures onder deze score worden niet getoond. */
+  minScoreToShow: 60,
   /** Max unieke bedrijfsdomeinen per run (stap 3). */
   maxDomainsPerRun: 80,
   /** Max detailpagina's per bedrijf (stap 5). */

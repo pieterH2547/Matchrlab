@@ -22,6 +22,9 @@ type werkgever. Regio is hard: buiten de straal = score maximaal 15, en zeg dat 
 maximaal 20 en de reden vermeldt dat. Vacatures die rechtstreeks van de bedrijfssite komen zijn vaak actueler; dat is al in een bonus verrekend,
 weeg dat niet opnieuw. Schrijf de reden informeel (je/jij), zonder "u", concreet en kort.
 
+Wees streng: 60+ betekent "deze vacature zou ik de kandidaat echt voorleggen". Alles daaronder wordt niet getoond.
+Schrijf de intro over de vacatures die 60 of meer scoren, niet over de rest.
+
 Geef ook:
 - intro: één zin voor de collega, bv. "Ik vond 14 vacatures rond Mechelen; de beste drie zitten in de chemie."
 - followups: 2 tot 4 korte vervolgvragen als klikbare pillen, bv. "Zoek verder in Limburg", "Laat ploegenwerk weg", "Waarom scoort X laag?".`;
