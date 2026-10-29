@@ -30,7 +30,7 @@ const TOOLS: ToolRow[] = [
   { id: "firecrawl", name: "Firecrawl", domain: "firecrawl.dev", what: "Leest jobsites die anders leeg lijken. Gratis tot 1.000 per maand.", fields: [{ key: "FIRECRAWL_API_KEY" }], url: "https://www.firecrawl.dev/app/api-keys", test: "firecrawl" },
 ];
 
-type Test = { ok: boolean; ms: number; count?: number; error?: string } | "busy";
+type Test = { ok: boolean; ms: number; count?: number; error?: string; sample?: string[] } | "busy";
 
 export function AdminPanel({ me }: { me: string }) {
   const [settings, setSettings] = useState<Setting[] | null>(null);
@@ -211,7 +211,7 @@ function ToolLine({ tool, byKey, onChanged }: { tool: ToolRow; byKey: Map<string
     setTest("busy");
     try {
       const res = await fetch(`/api/admin/test?tool=${tool.test}`, { cache: "no-store" });
-      const data = (await res.json()) as { ok: boolean; ms: number; count?: number; error?: string };
+      const data = (await res.json()) as { ok: boolean; ms: number; count?: number; error?: string; sample?: string[] };
       setTest(res.ok ? data : { ok: false, ms: 0, error: data.error ?? `HTTP ${res.status}` });
     } catch {
       setTest({ ok: false, ms: 0, error: "netwerkfout" });
@@ -283,6 +283,15 @@ function ToolLine({ tool, byKey, onChanged }: { tool: ToolRow; byKey: Map<string
       {test && test !== "busy" && (
         <p className={`mt-2 ml-12 text-xs ${test.ok ? "text-green-700" : "text-red-700"}`}>
           {test.ok ? `Werkt · ${(test.ms / 1000).toFixed(1)} s${test.count && test.count > 1 ? ` · ${test.count} resultaten` : ""}` : `Werkt niet: ${test.error ?? "onbekende fout"}`}
+          {test.sample?.length ? (
+            <span className="block mt-1 text-ink-soft">
+              {test.sample.map((x) => (
+                <span key={x} className="block">
+                  {x}
+                </span>
+              ))}
+            </span>
+          ) : null}
         </p>
       )}
 

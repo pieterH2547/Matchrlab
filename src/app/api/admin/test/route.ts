@@ -49,7 +49,21 @@ export async function GET(request: Request) {
       region_lat: 0,
       region_lng: 0,
     });
-    if (tool === "adzuna" || tool === "jooble" || tool === "googlejobs") {
+    if (tool === "googlejobs") {
+      // Probeer de varianten tot er één resultaten geeft, en toon wat SerpApi letterlijk antwoordt.
+      const diag = await boards.diagnoseGoogleJobs("operator", profile);
+      const hit = diag.find((d) => d.count > 0);
+      const last = diag[diag.length - 1];
+      return NextResponse.json({
+        tool,
+        ok: Boolean(hit),
+        count: hit?.count ?? 0,
+        ms: Date.now() - t,
+        error: hit ? undefined : last?.message ? `SerpApi: ${last.message}` : "verbinding werkt, maar Google Jobs geeft 0 vacatures voor 'operator Mechelen' in alle varianten",
+        sample: diag.map((d) => `${d.variant}: ${d.count}${d.message ? ` (${d.message})` : ""}`),
+      });
+    }
+    if (tool === "adzuna" || tool === "jooble") {
       const out = tool === "adzuna" ? await boards.searchAdzuna(profile) : tool === "jooble" ? await boards.searchJooble(profile) : await boards.searchGoogleJobs(profile);
       const jobs = out.jobs;
       return NextResponse.json({

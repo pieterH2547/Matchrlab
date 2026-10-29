@@ -245,47 +245,116 @@ export function mapGoogleJob(j: GoogleJob): NormalizedJob | null {
   };
 }
 
+type GoogleJobsData = { jobs_results?: GoogleJob[]; error?: string; serpapi_pagination?: { next_page_token?: string } };
+
+/**
+ * Varianten van de Google Jobs-vraag. Google kent niet elke Belgische gemeente in de zoekvraag en geeft
+ * dan 0 resultaten; daarom proberen we bij 0 de volgende variant (locatie als parameter, Engels, provincie).
+ */
+export function googleJobsVariants(title: string, profile: Profile): Record<string, string>[] {
+  const r = profile.region.trim();
+  return [
+    { q: `${title} ${r}`.trim(), hl: "nl", gl: "be" },
+    { q: title, location: `${r}, Belgium`, hl: "nl", gl: "be" },
+    { q: `${title} ${r}`.trim(), hl: "en", gl: "be" },
+    { q: `${title} Belgium`, hl: "en", gl: "be" },
+  ];
+}
+
+/** Eén SerpApi-aanroep. Injecteerbaar voor de diagnose; nooit de key in de fout. */
+async function serpApiJobs(key: string, params: Record<string, string>, token?: string): Promise<{ status: number; data: GoogleJobsData }> {
+  countCall("google_jobs");
+  const qs = new URLSearchParams({ engine: "google_jobs", ...params, api_key: key });
+  if (token) qs.set("next_page_token", token);
+  const r = await fetchRaw(`https://serpapi.com/search.json?${qs}`, undefined, 30_000);
+  let data: GoogleJobsData = {};
+  try {
+    data = JSON.parse(r.body);
+  } catch {
+    data = {};
+  }
+  return { status: r.status, data };
+}
+
+const NO_RESULTS = /hasn't returned any results|no results/i;
+
 /** Google Jobs via SerpApi, met paginering (next_page_token) tot LIMITS.googleJobsPagesPerQuery per titel. */
-export async function searchGoogleJobs(profile: Profile): Promise<SourceOut> {
+export async function searchGoogleJobs(profile: Profile): Promise<SourceOut & { variant?: number }> {
   const key = await getSetting("SERPAPI_API_KEY");
   if (!key) return { jobs: [], queries: 0, raw: 0, skipped: "niet ingesteld" };
   googleJobsLastError = null;
   const out: NormalizedJob[] = [];
   let queries = 0;
   let raw = 0;
+  const titles = searchTitles(profile, LIMITS.titlesPerSource);
+  if (!titles.length) return { jobs: [], queries: 0, raw: 0 };
+
+  // Welke variant werkt? Eerst met de eerste titel; daarna dezelfde variant voor alle titels.
+  let variant = -1;
+  let first: GoogleJobsData | null = null;
+  const variants0 = googleJobsVariants(titles[0], profile);
+  for (let v = 0; v < variants0.length; v++) {
+    queries += 1;
+    const res = await serpApiJobs(key, variants0[v]);
+    if (res.status !== 200 || (res.data.error && !NO_RESULTS.test(res.data.error))) {
+      googleJobsLastError = redactSecrets(res.data.error ?? (res.status === 0 ? "geen antwoord binnen 30 s" : `HTTP ${res.status}`));
+      return { jobs: [], queries, raw: 0, error: googleJobsLastError };
+    }
+    if ((res.data.jobs_results ?? []).length) {
+      variant = v;
+      first = res.data;
+      break;
+    }
+  }
+  if (variant < 0) return { jobs: [], queries, raw: 0, variant: -1 };
+
+  const collect = (data: GoogleJobsData) => {
+    const list = data.jobs_results ?? [];
+    raw += list.length;
+    for (const j of list) {
+      const m = mapGoogleJob(j);
+      if (m) out.push(m);
+    }
+    return list.length;
+  };
+
   await Promise.all(
-    searchTitles(profile, LIMITS.titlesPerSource).map(async (title) => {
+    titles.map(async (title, ti) => {
+      const params = googleJobsVariants(title, profile)[variant];
       let token: string | undefined;
       for (let page = 0; page < LIMITS.googleJobsPagesPerQuery; page++) {
-        countCall("google_jobs");
-        queries += 1;
-        // Regio in de zoekvraag zelf: SerpApi kent niet elke gemeente als 'location'.
-        const params = new URLSearchParams({ engine: "google_jobs", q: `${title} ${profile.region}`.trim(), hl: "nl", gl: "be", api_key: key });
-        if (token) params.set("next_page_token", token);
-        const r = await fetchRaw(`https://serpapi.com/search.json?${params}`, undefined, 30_000);
-        let data: { jobs_results?: GoogleJob[]; error?: string; serpapi_pagination?: { next_page_token?: string } } = {};
-        try {
-          data = JSON.parse(r.body);
-        } catch {
-          data = {};
+        let data: GoogleJobsData;
+        if (ti === 0 && page === 0 && first) data = first;
+        else {
+          queries += 1;
+          const res = await serpApiJobs(key, params, token);
+          if (res.status !== 200 || res.data.error) {
+            if (!NO_RESULTS.test(res.data.error ?? "")) googleJobsLastError = redactSecrets(res.data.error ?? (res.status === 0 ? "geen antwoord binnen 30 s" : `HTTP ${res.status}`));
+            return;
+          }
+          data = res.data;
         }
-        if (r.status !== 200 || data.error) {
-          // "geen resultaten" is geen fout; al de rest wel (key, tegoed op, …).
-          if (!/hasn't returned any results|no results/i.test(data.error ?? "")) googleJobsLastError = redactSecrets(data.error ?? (r.status === 0 ? "geen antwoord binnen 30 s" : `HTTP ${r.status}`));
-          return;
-        }
-        const list = data.jobs_results ?? [];
-        raw += list.length;
-        for (const j of list) {
-          const m = mapGoogleJob(j);
-          if (m) out.push(m);
-        }
+        const n = collect(data);
         token = data.serpapi_pagination?.next_page_token;
-        if (!token || list.length === 0) return;
+        if (!token || n === 0) return;
       }
     }),
   );
-  return { jobs: out.slice(0, LIMITS.maxJobsPerBoard), queries, raw, error: googleJobsLastError ?? undefined };
+  return { jobs: out.slice(0, LIMITS.maxJobsPerBoard), queries, raw, error: googleJobsLastError ?? undefined, variant };
+}
+
+/** Diagnose voor de testknop: hoeveel resultaten geeft elke variant, en wat zegt SerpApi letterlijk? */
+export async function diagnoseGoogleJobs(title: string, profile: Profile): Promise<{ variant: string; count: number; message?: string }[]> {
+  const key = await getSetting("SERPAPI_API_KEY");
+  if (!key) return [];
+  const out: { variant: string; count: number; message?: string }[] = [];
+  for (const p of googleJobsVariants(title, profile)) {
+    const res = await serpApiJobs(key, p);
+    const label = `q="${p.q}"${p.location ? ` location="${p.location}"` : ""} hl=${p.hl}`;
+    out.push({ variant: label, count: (res.data.jobs_results ?? []).length, message: res.data.error ? redactSecrets(res.data.error) : res.status !== 200 ? `HTTP ${res.status}` : undefined });
+    if ((res.data.jobs_results ?? []).length) break;
+  }
+  return out;
 }
 
 /**
