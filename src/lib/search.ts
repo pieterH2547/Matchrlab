@@ -109,9 +109,10 @@ async function anthropicSearch(query: string, opts: SearchOptions): Promise<Sear
     res = await client.messages.create({
       model: MODELS.cheap,
       max_tokens: 200,
-      system: "Je bent een zoekrobot. Voer exact één web_search uit met de opgegeven zoekopdracht, letterlijk, en antwoord daarna enkel met het woord: ok",
-      messages: [{ role: "user", content: `Zoekopdracht: ${query}${freshness}` }],
+      system: "Je bent een zoekrobot. Je MOET de tool web_search aanroepen met de opgegeven zoekopdracht, letterlijk en onvertaald. Antwoord daarna enkel met het woord: ok",
+      messages: [{ role: "user", content: `Zoek op het web naar: ${query}${freshness}` }],
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1, user_location: { type: "approximate", country: "BE", timezone: "Europe/Brussels" } }],
+      tool_choice: { type: "any" },
     });
   } catch (e) {
     const status = (e as { status?: number }).status;
@@ -127,6 +128,10 @@ async function anthropicSearch(query: string, opts: SearchOptions): Promise<Sear
       if (r.type !== "web_search_result") continue;
       out.push({ url: r.url, title: r.title, description: r.page_age ? `(${r.page_age})` : "" });
     }
+  }
+  if (out.length === 0) {
+    const kinds = res.content.map((b) => (b.type === "web_search_tool_result" && !Array.isArray(b.content) ? `${b.type}:${b.content.error_code}` : b.type)).join(",");
+    console.warn(`[search] anthropic web search gaf 0 resultaten voor "${query.slice(0, 60)}" (blokken: ${kinds}; stop=${res.stop_reason})`);
   }
   return out.slice(0, opts.count ?? 20);
 }
