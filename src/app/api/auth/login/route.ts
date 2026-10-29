@@ -7,11 +7,13 @@ export async function POST(request: Request) {
   const name = (body.name ?? "").trim();
   const password = body.password ?? "";
   if (!name) return NextResponse.json({ error: "Vul je naam in." }, { status: 400 });
-  if (!passwordMatches(password, env.APP_PASSWORD)) {
+  // Zonder wachtwoord: gewone gebruiker (enkel naam). Met wachtwoord: ook toegang tot /admin.
+  const admin = password !== "";
+  if (admin && !passwordMatches(password, env.APP_PASSWORD)) {
     return NextResponse.json({ error: "Wachtwoord klopt niet." }, { status: 401 });
   }
-  const token = await signSession(newSession(name), env.APP_PASSWORD);
-  const res = NextResponse.json({ ok: true, name });
+  const token = await signSession(newSession(name, admin), env.APP_PASSWORD);
+  const res = NextResponse.json({ ok: true, name, admin });
   const { name: cookieName, ...opts } = sessionCookieOptions();
   res.cookies.set(cookieName, token, opts);
   return res;

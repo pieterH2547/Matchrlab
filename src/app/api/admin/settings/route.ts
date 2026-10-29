@@ -3,6 +3,12 @@ import { requireSession } from "@/lib/session";
 import { deleteSetting, isSettingKey, setSetting, settingsStatus, SETTING_INFO } from "@/lib/settings";
 import { resolveProvider } from "@/lib/search";
 
+async function requireAdmin() {
+  const s = await requireSession();
+  if (!s.admin) throw new Response(JSON.stringify({ error: "Teamwachtwoord nodig." }), { status: 401 });
+  return s;
+}
+
 function errorResponse(e: unknown) {
   if (e instanceof Response) return e;
   return NextResponse.json({ error: e instanceof Error ? e.message : "Onbekende fout." }, { status: 500 });
@@ -10,7 +16,7 @@ function errorResponse(e: unknown) {
 
 export async function GET() {
   try {
-    await requireSession();
+    await requireAdmin();
     const [settings, provider] = await Promise.all([settingsStatus(), resolveProvider()]);
     return NextResponse.json({ settings, provider });
   } catch (e) {
@@ -20,7 +26,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireAdmin();
     const body = (await request.json().catch(() => ({}))) as { key?: string; value?: string };
     const key = body.key ?? "";
     const value = (body.value ?? "").trim();
@@ -39,7 +45,7 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireSession();
+    await requireAdmin();
     const body = (await request.json().catch(() => ({}))) as { key?: string };
     const key = body.key ?? "";
     if (!isSettingKey(key)) return NextResponse.json({ error: "Onbekende instelling." }, { status: 400 });

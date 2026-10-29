@@ -4,7 +4,7 @@
  */
 import { SESSION_COOKIE, SESSION_DAYS } from "@/lib/config";
 
-export type Session = { name: string; exp: number };
+export type Session = { name: string; exp: number; /** Teamwachtwoord ingevoerd: mag naar /admin. */ admin?: boolean };
 
 const enc = new TextEncoder();
 
@@ -54,8 +54,8 @@ export async function verifySession(token: string | undefined, secret: string): 
   }
 }
 
-export function newSession(name: string): Session {
-  return { name: name.trim().slice(0, 60), exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1000 };
+export function newSession(name: string, admin = false): Session {
+  return { name: name.trim().slice(0, 60), exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1000, admin };
 }
 
 export function sessionCookieOptions() {

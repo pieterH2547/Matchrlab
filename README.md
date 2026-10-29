@@ -27,6 +27,10 @@ Code: `src/lib/pipeline/` (één bestand per stap, elk met input/output-types), 
 
 De officiële VDAB-vacature-API vereist partnerregistratie op developer.vdab.be (IBM API Connect) en is niet publiek; de data mag bovendien enkel ongewijzigd herpubliceerd worden. Tot die toegang er is zoekt Matchr VDAB-vacatures via Brave met `site:vdab.be/vindeenjob`, wat per run 2 queries kost en enkel titel, url en snippet oplevert. Een echte VDAB-adapter hoort in `src/lib/pipeline/jobboards.ts` naast Adzuna.
 
+## Toegang
+
+Collega's geven enkel hun naam (voor "wie deed welke run"); er is geen wachtwoord om Matchr te gebruiken. Enkel `/admin` vraagt het teamwachtwoord (`APP_PASSWORD`), omdat daar de API-keys staan. Wie de URL kent kan dus runs starten; het maandbudget begrenst de schade.
+
 ## API-keys en instellingen: /admin
 
 Na het aanmelden staat rechtsboven **Instellingen** (`/admin`). Daar plak je de API-keys; ze worden versleuteld opgeslagen in de tabel `settings` (AES-256-GCM, sleutel afgeleid van `APP_PASSWORD`) en nooit meer getoond. Een waarde in `/admin` gaat voor op de omgevingsvariabele met dezelfde naam. Wijzig je `APP_PASSWORD`, dan moeten de keys opnieuw ingevuld worden.
