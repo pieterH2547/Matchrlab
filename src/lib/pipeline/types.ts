@@ -18,7 +18,12 @@ export const ProfileSchema = z.object({
   consent: z.enum(["bevestigd", "onbekend"]).describe("Is expliciet vermeld dat de kandidaat akkoord is met externe voorstelling?"),
   hard_requirements: z.array(z.string()).max(6).describe("Harde diploma's, licenties of certificaten die de kandidaat aantoonbaar heeft"),
   related_titles: z.array(z.string()).max(5).describe("Verwante functies waarvoor de kandidaat realistisch in aanmerking komt (geen sprongen in niveau of vak)"),
-  company_types: z.array(z.string()).max(6).describe("Soorten bedrijven die dit profiel aanwerven, zoals je ze in Google Maps intikt (bv. 'boekhoudkantoor', 'chemiebedrijf')"),
+  title_variants: z
+    .array(z.string())
+    .max(6)
+    .describe("Dezelfde functie zoals werkgevers ze in het Engels en Frans noemen (bv. 'process operator', 'opérateur de production')"),
+  skill_keywords: z.array(z.string()).max(6).describe("Kerntaken en vaardigheden waarop werkgevers vacatures beschrijven (bv. 'btw-aangiften', 'PLC', 'DCS')"),
+  company_types: z.array(z.string()).max(8).describe("Soorten bedrijven die dit profiel aanwerven, zoals je ze in Google Maps intikt (bv. 'boekhoudkantoor', 'chemiebedrijf')"),
   nearby_municipalities: z.array(z.string()).max(10).describe("Gemeenten binnen de straal rond de regio, dichtstbij eerst, de regio zelf eerst"),
   region_lat: z.number().describe("Breedtegraad van de regio (gemeente), of 0 als onbekend"),
   region_lng: z.number().describe("Lengtegraad van de regio (gemeente), of 0 als onbekend"),
@@ -194,6 +199,10 @@ export type Funnel = {
   aboveThreshold?: number;
   shown?: number;
   toVerify?: { contract: number; werkgever: number };
+  /** Per ontdekkingskanaal: unieke vacatures, unieke werkgevers, passende vacatures. */
+  channels?: Record<string, { jobs: number; employers: number; matches: number }>;
+  /** Lokale ontdekking: gemeenten bevraagd, Maps-vragen, uit cache, eerder bekende bedrijven hergebruikt. */
+  local?: { municipalities: number; mapsQueries: number; fromLocalDb: number; companies: number };
   ai?: { rounds: number; searches: number; raw: number; kept: number; unique?: number; verifiedActive?: number; aboveThreshold?: number; costEur: number; durationMs: number; model: string | null; error?: string; skipped?: string };
 };
 

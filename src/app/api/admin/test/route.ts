@@ -44,6 +44,8 @@ export async function GET(request: Request) {
       consent: "onbekend",
       hard_requirements: [],
       related_titles: [],
+  title_variants: [],
+  skill_keywords: [],
       company_types: [],
       nearby_municipalities: [],
       region_lat: 0,

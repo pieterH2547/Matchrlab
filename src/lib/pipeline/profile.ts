@@ -27,7 +27,9 @@ Regels:
 - job_titles: de primaire titels en hun synoniemen zoals werkgevers ze echt gebruiken.
 - related_titles: verwante functies waarvoor de kandidaat realistisch in aanmerking komt op basis van overdraagbare
   vaardigheden, zonder sprong in niveau of vak (een junior boekhouder is geen controller). Max 5.
-- company_types: soorten bedrijven die dit profiel aanwerven, kort zoals je ze in Google Maps intikt
+- title_variants: dezelfde functie in het Engels en Frans zoals Belgische werkgevers ze schrijven. Max 6.
+- skill_keywords: 3 tot 6 kerntaken of vaardigheden waarop vacatures beschreven worden, kort (bv. "btw-aangiften", "PLC", "storingsdienst").
+- company_types: 4 tot 8 soorten bedrijven (ook kleine KMO's) die dit profiel aanwerven, kort zoals je ze in Google Maps intikt
   ("boekhoudkantoor", "chemiebedrijf", "voedingsbedrijf", "installateur HVAC"). Nooit uitzendkantoren of recruitmentbureaus.
 - nearby_municipalities: max 10 gemeenten binnen de straal rond de regio, de regio zelf eerst, dichtstbij eerst.
 - region_lat / region_lng: coördinaten van de regio (gemeente) als je ze kent, anders 0.`;
@@ -59,7 +61,9 @@ export function normalizeProfile(p: Profile): Profile {
     consent: p.consent ?? "onbekend",
     hard_requirements: dedupe(p.hard_requirements ?? []).slice(0, 6),
     related_titles: dedupe(p.related_titles ?? []).filter((t) => !(p.job_titles ?? []).some((j) => j.toLowerCase() === t.toLowerCase())).slice(0, 5),
-    company_types: dedupe(p.company_types ?? []).slice(0, 6),
+    company_types: dedupe(p.company_types ?? []).slice(0, 8),
+    title_variants: dedupe(p.title_variants ?? []).slice(0, 6),
+    skill_keywords: dedupe(p.skill_keywords ?? []).slice(0, 6),
     nearby_municipalities: dedupe(p.nearby_municipalities ?? []).slice(0, 10),
     region_lat: Number.isFinite(p.region_lat) ? p.region_lat : 0,
     region_lng: Number.isFinite(p.region_lng) ? p.region_lng : 0,

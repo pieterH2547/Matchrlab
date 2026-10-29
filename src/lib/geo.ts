@@ -1,4 +1,4 @@
-import { BE_PLACES, BE_POSTCODES } from "./geo-be";
+import { BE_PLACES, BE_POSTCODES, BE_ZIP_NAMES } from "./geo-be";
 /**
  * Grove geolocatie voor Belgische plaatsnamen, zonder externe dienst.
  * Onbekende plaatsen worden niet weggefilterd; het scoringsmodel oordeelt dan.
@@ -250,4 +250,24 @@ export function extractPostcode(text: string | null | undefined): string | null 
 /** Strikte variant: onbeslisbaar telt als buiten de regio. Voor jobboards, waar een plaats altijd vermeld hoort te staan. */
 export function strictlyWithinRadius(location: string | null | undefined, region: string, radiusKm: number): boolean {
   return withinRadius(location, region, radiusKm) === true;
+}
+
+/**
+ * Gemeenten (per postcode) binnen de straal, dichtstbij eerst: het zoekgebied in stukken voor lokaal zoeken.
+ * Naam = de hoofdnaam van de postcode in de bpost-lijst; dubbele namen vallen weg.
+ */
+export function municipalitiesWithin(center: GeoPoint, radiusKm: number, max = 60): { name: string; km: number }[] {
+  const out: { name: string; km: number }[] = [];
+  const seen = new Set<string>();
+  for (const [zip, [lat, lon]] of Object.entries(BE_POSTCODES)) {
+    const name = BE_ZIP_NAMES[zip];
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    const km = distanceKm(center, { lat, lon });
+    if (km > radiusKm) continue;
+    seen.add(key);
+    out.push({ name: name.replace(/(^|[-\s])\p{L}/gu, (m) => m.toUpperCase()), km: Math.round(km) });
+  }
+  return out.sort((a, b) => a.km - b.km).slice(0, max);
 }

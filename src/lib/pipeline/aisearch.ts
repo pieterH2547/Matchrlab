@@ -179,6 +179,8 @@ function profileForSearch(profile: Profile) {
   return {
     gewenste_functies: profile.job_titles,
     alternatieve_functietitels: profile.related_titles ?? [],
+    synoniemen_en_fr: profile.title_variants ?? [],
+    kerntaken_en_vaardigheden: profile.skill_keywords ?? [],
     vaardigheden: profile.skills.slice(0, 15),
     jaren_ervaring: profile.years_experience,
     sectoren: profile.sectors,

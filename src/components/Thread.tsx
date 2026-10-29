@@ -208,6 +208,18 @@ const FUNNEL_SOURCE: Record<string, string> = {
   openai_web: "OpenAI Web Search",
 };
 
+const CHANNEL_LABEL: Record<string, string> = {
+  lokaal: "Lokale KMO-ontdekking (Google Maps)",
+  werkgeverssites_web: "Werkgeverssites (via web gevonden)",
+  linkedin: "LinkedIn (zoekresultaten)",
+  indeed: "Indeed (zoekresultaten)",
+  vdab: "VDAB",
+  google_jobs: "Google Jobs",
+  google_zoek: "Google-zoekopdrachten (ATS, eigen sites)",
+  openai: "OpenAI Web Search",
+  jobboards: "Jooble en Adzuna",
+};
+
 const REASON_TEXT: Record<string, string> = {
   onder_drempel: "onder de matchdrempel",
   contract_tijdelijk: "tijdelijk, interim of freelance",
@@ -303,6 +315,39 @@ function RunSummary({ stats, cost }: { stats: RunStats; cost: number }) {
             <Row k="Waarvan contract te verifiëren" v={f.toVerify?.contract} />
             <Row k="Waarvan werkgever te verifiëren" v={f.toVerify?.werkgever} />
           </div>
+        </div>
+      )}
+
+      {f?.channels && (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-ink-faint mb-1">Per ontdekkingskanaal</div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-ink-faint text-left">
+                <th className="font-normal py-1 pr-3">Kanaal</th>
+                <th className="font-normal py-1 pr-3 text-right">Unieke vacatures</th>
+                <th className="font-normal py-1 pr-3 text-right">Werkgevers</th>
+                <th className="font-normal py-1 text-right">Passend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(f.channels)
+                .sort((a, b) => b[1].jobs - a[1].jobs)
+                .map(([k, c]) => (
+                  <tr key={k} className="border-t border-line">
+                    <td className="py-1 pr-3">{CHANNEL_LABEL[k] ?? k}</td>
+                    <td className="py-1 pr-3 text-right mono">{c.jobs}</td>
+                    <td className="py-1 pr-3 text-right mono">{c.employers}</td>
+                    <td className="py-1 text-right mono">{c.matches}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          {f.local && (
+            <p className="mt-1 text-xs text-ink-faint">
+              Lokaal: {f.local.mapsQueries} Google Maps-vragen over {f.local.municipalities} gemeenten, {f.local.fromLocalDb} bedrijven uit eerdere runs hergebruikt, {f.local.companies} werkgevers onderzocht.
+            </p>
+          )}
         </div>
       )}
 

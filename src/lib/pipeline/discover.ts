@@ -6,7 +6,9 @@ import { llmJson, type CostMeter } from "@/lib/llm";
 import { webSearch, searchAvailable, resolveProvider, placesSearch } from "@/lib/search";
 import { getSetting } from "@/lib/settings";
 import { isBlockedDomain, isIntermediaryCompany, registrableDomain } from "@/lib/blocklist";
-import { distanceFromCenter, regionCenter } from "@/lib/geo";
+import { distanceFromCenter, municipalitiesWithin, regionCenter } from "@/lib/geo";
+import { db, schema } from "@/lib/db";
+import { isNotNull } from "drizzle-orm";
 import { LIMITS } from "@/lib/config";
 import { DiscoveryQueriesSchema, type Profile } from "./types";
 
@@ -36,7 +38,7 @@ export type DiscoveredCompany = {
   lat?: number | null;
   lng?: number | null;
   distanceKm?: number | null;
-  via: "maps" | "web";
+  via: "maps" | "web" | "lokaal-db";
 };
 
 export type DiscoveryResult = {
@@ -45,24 +47,48 @@ export type DiscoveryResult = {
   queries: string[];
   braveQueries: number;
   outOfRadius: number;
+  /** Gemeenten die in de Maps-zoekopdrachten aan bod kwamen, en hoeveel vragen uit de cache kwamen. */
+  municipalities?: number;
+  mapsQueries?: number;
+  fromLocalDb?: number;
   note?: string;
 };
 
 /** Google Maps-categorieën van tussenpersonen: nooit als werkgever meenemen. */
 const AGENCY_CATEGORY = /(uitzend|interim|recruit|werving|selectie|headhunt|employment agency|staffing|personeelsdienst|outsourcing|consult)/i;
 
+/** Zoekbudget voor Google Maps, afhankelijk van de straal: groter gebied = meer gemeenten = meer vragen. */
+export function mapsBudget(radiusKm: number): number {
+  return Math.max(6, Math.min(LIMITS.maxMapsQueries, 6 + Math.round(radiusKm / 2)));
+}
+
 /**
- * Zoekopdrachten voor Google Maps: soort bedrijf × gemeente, de regio eerst.
- * Deterministisch (geen AI-call), begrensd op LIMITS.maxMapsQueries.
+ * Zoekopdrachten voor Google Maps: het zoekgebied opgedeeld in gemeenten (dichtstbij eerst), elke gemeente
+ * met een ander soort bedrijf, zodat het hele gebied en alle bedrijfstypes aan bod komen binnen het budget.
+ * Deterministisch (geen AI-call). Zonder bekende gemeenten: de lijst uit het profiel.
  */
-export function mapsQueries(profile: Profile): string[] {
-  const types = (profile.company_types ?? []).slice(0, 4);
-  const places = [profile.region, ...(profile.nearby_municipalities ?? []).filter((m) => m.toLowerCase() !== profile.region.toLowerCase())].slice(0, 3);
+export function mapsQueries(profile: Profile, budget = mapsBudget(profile.radius_km)): string[] {
+  const types = (profile.company_types ?? []).slice(0, 8);
+  const center = regionCenter(profile);
+  const grid = center ? municipalitiesWithin(center, profile.radius_km, 40).map((m) => m.name) : [];
+  const fromProfile = [profile.region, ...(profile.nearby_municipalities ?? [])];
+  const places = Array.from(new Map([...fromProfile, ...grid].filter(Boolean).map((p) => [p.toLowerCase(), p])).values());
   if (!types.length || !places[0]) return [];
-  const combos: string[] = [];
-  // Eerst elk type in de regio zelf, dan de buurgemeenten.
-  for (const place of places) for (const t of types) combos.push(`${t} ${place}`);
-  return Array.from(new Set(combos)).slice(0, LIMITS.maxMapsQueries);
+  const out: string[] = [];
+  // Ronde 1: elk type in de regio zelf. Daarna: elke gemeente één type, roterend, van dichtbij naar ver.
+  for (const t of types) out.push(`${t} ${places[0]}`);
+  for (let i = 1, k = 0; out.length < budget * 3 && i < places.length; i++, k++) out.push(`${types[k % types.length]} ${places[i]}`);
+  return Array.from(new Set(out)).slice(0, budget);
+}
+
+/** Relevant voor dit profiel? Categorie van Google Maps tegen soorten bedrijven en sectoren. */
+export function categoryMatches(category: string | null | undefined, profile: Profile): boolean {
+  const c = (category ?? "").toLowerCase();
+  if (!c) return false;
+  const words = [...(profile.company_types ?? []), ...profile.sectors]
+    .flatMap((t) => t.toLowerCase().split(/[\s/,-]+/))
+    .filter((w) => w.length >= 4);
+  return words.some((w) => c.includes(w) || w.includes(c));
 }
 
 export async function generateDiscoveryQueries(profile: Profile, meter: CostMeter): Promise<string[]> {
@@ -129,6 +155,26 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
     }
   }
 
+  // 1b. Bedrijven in de buurt die eerdere runs al vonden (gratis): enkel bij een passende categorie.
+  let fromLocalDb = 0;
+  if (center) {
+    const known = await db()
+      .select()
+      .from(schema.companies)
+      .where(isNotNull(schema.companies.lat))
+      .limit(3000)
+      .catch(() => []);
+    for (const c of known) {
+      if (found.has(c.domain) || exclude.has(c.domain) || c.lat === null || c.lng === null) continue;
+      if (!categoryMatches(c.category, profile) || isIntermediaryCompany(c.name, c.domain)) continue;
+      const dist = distanceFromCenter(center, { lat: c.lat, lon: c.lng });
+      if (dist === null || dist > profile.radius_km) continue;
+      found.set(c.domain, { domain: c.domain, name: c.name ?? undefined, address: c.address ?? undefined, category: c.category ?? undefined, lat: c.lat, lng: c.lng, distanceKm: dist, via: "lokaal-db" });
+      fromLocalDb += 1;
+      if (fromLocalDb >= 25) break;
+    }
+  }
+
   // 2. Webzoekopdrachten vullen aan (meer als er geen Maps is). De AI bedenkt ze.
   const webBudget = hasMaps ? Math.min(3, opts.maxQueries ?? 3) : opts.maxQueries ?? 8;
   const queries = hasWeb && webBudget > 0 ? (await generateDiscoveryQueries(profile, meter)).slice(0, webBudget) : [];
@@ -145,13 +191,15 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
     }
   }
 
-  // Maps eerst (dichtstbij eerst), dan web; max LIMITS.maxDomainsPerRun.
+  // Lokaal (Maps en eerder bekend) eerst, dichtstbij eerst; dan web. Max LIMITS.maxDomainsPerRun.
+  const rank = (c: DiscoveredCompany) => (c.via === "web" ? 1 : 0);
   const companies = Array.from(found.values())
-    .sort((a, b) => (a.via === b.via ? (a.distanceKm ?? 999) - (b.distanceKm ?? 999) : a.via === "maps" ? -1 : 1))
+    .sort((a, b) => rank(a) - rank(b) || (a.distanceKm ?? 999) - (b.distanceKm ?? 999))
     .slice(0, LIMITS.maxDomainsPerRun);
   const provider = await resolveProvider();
   let note: string | undefined;
   if (limitHit) note = `Zoeklimiet van ${provider} bereikt; minder bedrijven ontdekt.`;
   else if (!hasMaps) note = "Zonder Serper geen Google Maps; enkel webzoekopdrachten.";
-  return { domains: companies.map((c) => c.domain), companies, queries: [...mq, ...queries], braveQueries, outOfRadius, note };
+  const municipalities = new Set(mq.map((q) => q.split(" ").slice(-1)[0])).size;
+  return { domains: companies.map((c) => c.domain), companies, queries: [...mq, ...queries], braveQueries, outOfRadius, municipalities, mapsQueries: mq.length, fromLocalDb, note };
 }

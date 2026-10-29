@@ -173,7 +173,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         state = {
           ...setStep(state, "discover", {
             status: "done",
-            detail: `${disc.domains.length} werkgevers (${disc.companies.filter((c) => c.via === "maps").length} via Google Maps) · ${disc.outOfRadius} buiten de straal geschrapt · ${reused.length} recent al bekeken${disc.note ? ` · ${disc.note}` : ""}`,
+            detail: `${disc.domains.length} werkgevers (${disc.companies.filter((c) => c.via === "maps").length} via Google Maps in ${disc.municipalities ?? 0} gemeenten, ${disc.fromLocalDb ?? 0} al bekend in de buurt) · ${disc.outOfRadius} buiten de straal · ${reused.length} recent al bekeken${disc.note ? ` · ${disc.note}` : ""}`,
           }),
           domains: toCrawl,
           companyDomains: disc.domains,
@@ -188,7 +188,10 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           const p0 = f.prefilter ?? { regio: 0, tussenpersoon: 0, uitsluiting: 0 };
           state.stats = {
             ...(state.stats ?? {}),
-            funnel: { ...f, prefilter: { regio: p0.regio + reusedPf.dropped.regio, tussenpersoon: p0.tussenpersoon + reusedPf.dropped.tussenpersoon, uitsluiting: p0.uitsluiting + reusedPf.dropped.uitsluiting } },
+            funnel: {
+              ...f,
+              local: { municipalities: disc.municipalities ?? 0, mapsQueries: disc.mapsQueries ?? 0, fromLocalDb: disc.fromLocalDb ?? 0, companies: disc.domains.length },
+              prefilter: { regio: p0.regio + reusedPf.dropped.regio, tussenpersoon: p0.tussenpersoon + reusedPf.dropped.tussenpersoon, uitsluiting: p0.uitsluiting + reusedPf.dropped.uitsluiting } },
           };
         }
         const next: Run["status"] = toCrawl.length ? "crawl" : "score";
@@ -316,6 +319,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           contract: result.scored.filter((s) => s.contract === "onbekend").length,
           werkgever: result.scored.filter((s) => s.employerStatus === "onbekend" || !(names.get(s.job.id) ?? "").trim()).length,
         };
+        funnel.channels = await channelStats(dedupedJobs, names, new Set(passing.map((s) => s.job.id)));
         if (funnel.ai) {
           const aiIds = new Set(dedupedJobs.filter((j) => j.source === "openai_web").map((j) => j.id));
           funnel.ai = {
@@ -416,11 +420,11 @@ const SOURCE_LABEL: Record<string, string> = { google_jobs: "Google Jobs", joobl
 
 /** Bedrijfsgegevens uit Google Maps bewaren (naam, adres, categorie, coördinaten), zonder crawlstatus te raken. */
 async function saveDiscovered(companies: DiscoveredCompany[]): Promise<void> {
-  const rows = companies.filter((c) => c.via === "maps");
+  const rows = companies;
   if (!rows.length) return;
   await db()
     .insert(schema.companies)
-    .values(rows.map((c) => ({ domain: c.domain, name: c.name ?? null, address: c.address ?? null, category: c.category ?? null, lat: c.lat ?? null, lng: c.lng ?? null })))
+    .values(rows.map((c) => ({ domain: c.domain, name: c.name ?? null, address: c.address ?? null, category: c.category ?? null, lat: c.lat ?? null, lng: c.lng ?? null, discoveredVia: c.via })))
     .onConflictDoUpdate({
       target: schema.companies.domain,
       set: {
@@ -429,6 +433,7 @@ async function saveDiscovered(companies: DiscoveredCompany[]): Promise<void> {
         category: sql`coalesce(excluded.category, ${schema.companies.category})`,
         lat: sql`coalesce(excluded.lat, ${schema.companies.lat})`,
         lng: sql`coalesce(excluded.lng, ${schema.companies.lng})`,
+        discoveredVia: sql`coalesce(${schema.companies.discoveredVia}, excluded.discovered_via)`,
       },
     })
     .catch(() => undefined);
@@ -469,6 +474,36 @@ async function withContacts(list: EmployerView[]): Promise<EmployerView[]> {
       return { ...e, contactEmail: found?.email ?? null, contactSource: found?.source ?? null };
     }),
   );
+}
+
+/** Kanaal van een vacature, voor de meting per ontdekkingskanaal. */
+export function channelOf(j: { source: string; raw?: unknown }, companyVia: string | null | undefined): string {
+  const via = ((j.raw ?? {}) as { via?: string }).via;
+  if (j.source === "company_site") return companyVia === "web" ? "werkgeverssites_web" : "lokaal";
+  if (j.source === "web" && via === "linkedin") return "linkedin";
+  if (j.source === "web" && via === "indeed") return "indeed";
+  if (j.source === "vdab") return "vdab";
+  if (j.source === "google_jobs") return "google_jobs";
+  if (j.source === "web") return "google_zoek";
+  if (j.source === "openai_web") return "openai";
+  return "jobboards";
+}
+
+/** Per kanaal: unieke vacatures, unieke werkgevers en hoeveel er de drempel haalden. */
+async function channelStats(jobsIn: Job[], names: Map<number, string>, passingIds: Set<number>): Promise<Record<string, { jobs: number; employers: number; matches: number }>> {
+  const ids = Array.from(new Set(jobsIn.map((j) => j.companyId).filter((x): x is number => x !== null)));
+  const comps = ids.length ? await db().select({ id: schema.companies.id, via: schema.companies.discoveredVia }).from(schema.companies).where(inArray(schema.companies.id, ids)) : [];
+  const viaById = new Map(comps.map((c) => [c.id, c.via]));
+  const out: Record<string, { jobs: number; employers: Set<string>; matches: number }> = {};
+  for (const j of jobsIn) {
+    const ch = channelOf(j, j.companyId !== null ? viaById.get(j.companyId) : null);
+    const e = (out[ch] ??= { jobs: 0, employers: new Set(), matches: 0 });
+    e.jobs += 1;
+    const name = (names.get(j.id) ?? "").toLowerCase().replace(/\b(nv|bv|bvba|sa|srl|cvba)\b/g, "").replace(/[^a-z0-9]/g, "");
+    if (name) e.employers.add(name);
+    if (passingIds.has(j.id)) e.matches += 1;
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, { jobs: v.jobs, employers: v.employers.size, matches: v.matches }]));
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

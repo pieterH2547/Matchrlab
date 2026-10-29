@@ -33,9 +33,9 @@ export const LIMITS = {
   /** Max vacatures per werkgever, zodat één grote werkgever de lijst niet vult. */
   maxPerEmployer: 2,
   /** Max unieke bedrijfsdomeinen per run (stap 3). */
-  maxDomainsPerRun: 30,
+  maxDomainsPerRun: 45,
   /** Max Google Maps-zoekopdrachten per run (soort bedrijf × gemeente). */
-  maxMapsQueries: 6,
+  maxMapsQueries: 20,
   /** Max vacatures die we vóór de eindscoring op hun pagina controleren. */
   maxVerifyPerRun: 40,
   /** Max detailpagina's per bedrijf (stap 5). */
@@ -88,10 +88,18 @@ export const STANDARD_JOB_PATHS = [
   "/vacatures",
   "/careers",
   "/werken-bij",
-  "/jobs-nl",
+  "/werken-bij-ons",
   "/nl/jobs",
   "/nl/vacatures",
+  "/nl/werken-bij",
+  "/jobs-nl",
+  "/vacature",
   "/join-us",
+  "/join-our-team",
+  "/carriere",
+  "/emplois",
+  "/fr/emplois",
+  "/over-ons/vacatures",
 ] as const;
 
 export const SESSION_COOKIE = "matchr_session";

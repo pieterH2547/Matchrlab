@@ -64,6 +64,13 @@
       "when": 1793303833139,
       "tag": "0008_contact_email",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793305364668,
+      "tag": "0009_local_discovery",
+      "breakpoints": true
     }
   ]
 }

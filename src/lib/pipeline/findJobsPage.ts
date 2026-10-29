@@ -19,7 +19,26 @@ export type JobsPageResult =
   | { kind: "page"; jobsUrl: string; text: string; links: LinkInfo[]; companyName: string; how: "standard-path" | "homepage-nav" | "brave" }
   | { kind: "none"; companyName: string; reason: string; braveUsed: boolean };
 
-const JOB_WORDS = /(vacature|vacatures|jobs|job|career|careers|werken\s*bij|werkenbij|join|solliciteer|opportun|talent|loopbaan|emploi|offres)/i;
+const JOB_WORDS = /(vacature|vacatures|jobs|job|career|careers|werken\s*bij|werkenbij|join|solliciteer|opportun|talent|loopbaan|emploi|offres|carri[eè]re|kom ons team|team versterken)/i;
+/** Pad van een jobpagina in een sitemap (geen blogpost of nieuws). */
+const JOB_PATH = /\/(vacatures?|jobs?|careers?|werken-bij[a-z-]*|join[a-z-]*|emplois?|carrieres?|carriere)(\/|$)/i;
+
+/** Jobpagina uit /sitemap.xml halen: één goedkope fetch, helpt bij sites zonder link in het menu. */
+export function jobsPageFromSitemap(xml: string, domain: string): string | null {
+  let locs = Array.from(xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)).map((m) => m[1]);
+  // Uit de cache komt enkel tekst: dan de losse url's.
+  if (!locs.length) locs = Array.from(xml.matchAll(/https?:\/\/[^\s<>"']+/gi)).map((m) => m[0]);
+  const hits = locs.filter((u) => {
+    try {
+      const url = new URL(u);
+      return url.hostname.replace(/^www\./, "").endsWith(domain) && JOB_PATH.test(url.pathname);
+    } catch {
+      return false;
+    }
+  });
+  // Liefst de overzichtspagina (kortste pad), niet één vacature.
+  return hits.sort((a, b) => new URL(a).pathname.split("/").length - new URL(b).pathname.split("/").length)[0] ?? null;
+}
 
 const PICK_SYSTEM = `Je krijgt de links van de homepage van een bedrijf. Kies de link die naar de vacaturepagina of
 "werken bij"-pagina van dat bedrijf leidt. Geef de volledige URL terug. Als er geen is, geef een lege string.
@@ -78,7 +97,7 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
   const tried = new Set<string>();
   const candidates = [...candidateLinks.slice(0, 3).map((l) => l.href), ...STANDARD_JOB_PATHS.map((p) => `https://${domain}${p}`)];
   // Alle kandidaten tegelijk, zonder Jina: een trage of dode site houdt zo niet alles op.
-  const unique = candidates.filter((u) => (tried.has(u) ? false : (tried.add(u), true))).slice(0, 12);
+  const unique = candidates.filter((u) => (tried.has(u) ? false : (tried.add(u), true))).slice(0, 18);
   const probes = await Promise.all(unique.map((url) => fetchPage(url, { allowJina: false }).then((page) => ({ url, page })).catch(() => null)));
   const okProbes = probes.filter((p): p is NonNullable<typeof p> => Boolean(p && p.page.status >= 200 && p.page.status < 300));
   const direct = okProbes.find((p) => isUsefulText(p.page.text) && JOB_WORDS.test(p.page.text.slice(0, 3000)));
@@ -91,7 +110,18 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
     }
   }
 
-  // c. Haiku kiest uit de homepage-links
+  // b2. Sitemap: veel KMO-sites hebben een vacaturepagina die niet in het menu staat.
+  const sitemap = await fetchPage(`https://${domain}/sitemap.xml`, { allowJina: false }).catch(() => null);
+  const fromMap = sitemap && sitemap.status === 200 ? jobsPageFromSitemap(sitemap.html ?? sitemap.text, domain) : null;
+  if (fromMap && !tried.has(fromMap)) {
+    tried.add(fromMap);
+    const page = await fetchPage(fromMap, { allowJina: true });
+    if (page.status >= 200 && page.status < 300 && isUsefulText(page.text)) {
+      return { kind: "page", jobsUrl: fromMap, text: page.text, links: page.links, companyName, how: "standard-path" };
+    }
+  }
+
+  // c. Het lichte model kiest uit de homepage-links
   if (home.links.length > 0) {
     const list = home.links
       .filter((l) => sameSite(l.href))

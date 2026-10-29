@@ -85,6 +85,16 @@ export const companies = pgTable("companies", {
   /** Gevonden contactadres van de werkgever (jobs@, hr@, …) en waar het stond. */
   contactEmail: text("contact_email"),
   contactSource: text("contact_source"),
+  /** Hoe Matchr dit bedrijf vond: maps (lokaal), web, of eerder bekend in de buurt (lokaal-db). */
+  discoveredVia: text("discovered_via"),
+});
+
+/** Cache van betalende zoekopdrachten (bv. Google Maps via Serper): dezelfde vraag niet opnieuw betalen. */
+export const searchCache = pgTable("search_cache", {
+  key: text("key").primaryKey(),
+  kind: text("kind").notNull(),
+  results: jsonb("results").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const jobs = pgTable(

@@ -13,6 +13,8 @@ import { MODELS } from "@/lib/config";
 import { recordSearches, reserveBraveQueries } from "@/lib/budget";
 import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
+import { db, schema } from "@/lib/db";
+import { eq } from "drizzle-orm";
 import { countCall, noteFailure } from "@/lib/usage";
 import { resolveOpenAIModel } from "@/lib/openaiModels";
 
@@ -166,6 +168,33 @@ export type PlaceResult = { name: string; website: string; address: string; cate
 export async function placesSearch(query: string): Promise<PlaceResult[] | null> {
   const key = await getSetting("SERPER_API_KEY");
   if (!key) return null;
+  // Zelfde vraag binnen 14 dagen: uit de cache, kost geen zoekopdracht.
+  const cacheKey = `maps:${query.trim().toLowerCase()}`;
+  const cached = await readSearchCache<PlaceResult[]>(cacheKey, 14).catch(() => null);
+  if (cached) {
+    countCall("serper_maps_cache");
+    return cached;
+  }
+  const fresh = await placesSearchLive(key, query);
+  if (fresh) await writeSearchCache(cacheKey, "maps", fresh).catch(() => undefined);
+  return fresh;
+}
+
+async function readSearchCache<T>(key: string, days: number): Promise<T | null> {
+  const rows = await db().select().from(schema.searchCache).where(eq(schema.searchCache.key, key)).limit(1);
+  const row = rows[0];
+  if (!row || Date.now() - row.createdAt.getTime() > days * 24 * 3600 * 1000) return null;
+  return row.results as T;
+}
+
+async function writeSearchCache(key: string, kind: string, results: unknown): Promise<void> {
+  await db()
+    .insert(schema.searchCache)
+    .values({ key, kind, results, createdAt: new Date() })
+    .onConflictDoUpdate({ target: schema.searchCache.key, set: { results, createdAt: new Date() } });
+}
+
+async function placesSearchLive(key: string, query: string): Promise<PlaceResult[] | null> {
   countCall("serper_maps");
   const data = (await postJson("https://google.serper.dev/places", { q: query, gl: "be", hl: "nl" }, { "x-api-key": key })) as {
     places?: { title?: string; website?: string; address?: string; category?: string; type?: string; latitude?: number; longitude?: number }[];

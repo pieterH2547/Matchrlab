@@ -88,16 +88,22 @@ export function targetedQueries(profile: Profile): { q: string; kind: "vdab" | "
   const [t1, t2] = searchTitles(profile, 2);
   const r = profile.region;
   if (!t1) return [];
-  const ats = "(site:jobs.smartrecruiters.com OR site:recruitee.com OR site:jobs.lever.co OR site:boards.greenhouse.io OR site:jobtoolz.com OR site:teamtailor.com)";
+  // Synoniemen in NL/EN/FR in één OR-groep: werkgevers noemen dezelfde job anders.
+  const variants = [t1, ...(profile.title_variants ?? [])].slice(0, 3);
+  const titleGroup = variants.length > 1 ? `(${variants.map((v) => `"${v}"`).join(" OR ")})` : `"${t1}"`;
+  const skill = (profile.skill_keywords ?? [])[0];
+  const ats = "(site:jobs.smartrecruiters.com OR site:recruitee.com OR site:jobs.lever.co OR site:boards.greenhouse.io OR site:jobtoolz.com OR site:teamtailor.com OR site:jobs.personio.com OR site:apply.workable.com)";
   const out: { q: string; kind: "vdab" | "indeed" | "linkedin" | "ats" | "site" }[] = [
     { q: `site:vdab.be/vindeenjob/vacatures ${t1} ${r}`, kind: "vdab" },
-    { q: `site:be.indeed.com ${t1} ${r}`, kind: "indeed" },
-    { q: `site:linkedin.com/jobs ${t1} ${r}`, kind: "linkedin" },
-    { q: `${ats} ${t1} ${r}`, kind: "ats" },
-    { q: `"${t1}" vacature ${r} solliciteer -interim -uitzendkantoor`, kind: "site" },
+    { q: `site:be.indeed.com ${titleGroup} ${r}`, kind: "indeed" },
+    { q: `site:linkedin.com/jobs ${titleGroup} ${r}`, kind: "linkedin" },
+    { q: `${ats} ${titleGroup} ${r}`, kind: "ats" },
+    // KMO-sites: "werken bij"/"vacatures"-pagina's van werkgevers zelf, zonder jobboards en bureaus.
+    { q: `${titleGroup} ("werken bij" OR vacatures OR "join our team") ${r} -site:indeed.com -site:linkedin.com -site:vdab.be -interim -uitzend`, kind: "site" },
   ];
   if (t2) out.push({ q: `site:vdab.be/vindeenjob/vacatures ${t2} ${r}`, kind: "vdab" });
-  return out.slice(0, 6);
+  if (skill) out.push({ q: `vacature "${skill}" ${r} -interim -uitzend`, kind: "site" });
+  return out.slice(0, 7);
 }
 
 /** Lijkt deze link op één concrete vacature (geen zoek- of lijstpagina)? */
