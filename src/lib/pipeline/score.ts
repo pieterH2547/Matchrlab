@@ -198,7 +198,8 @@ export async function preselect(
     return jobsIn;
   }
   const keep = new Set<number>();
-  const batchSize = 40;
+  // 20 per batch, allemaal parallel: één batch van 40 duurde in productie tot 46 s.
+  const batchSize = 20;
   // Batches parallel i.p.v. na elkaar: was in productie de grootste wachttijd vóór de eerste matches.
   const batches: Job[][] = [];
   for (let i = 0; i < jobsIn.length; i += batchSize) batches.push(jobsIn.slice(i, i + batchSize));
@@ -248,12 +249,14 @@ export async function scoreJobs(
   ask: (batch: Job[]) => Promise<ScoringOut> = (batch) => {
     // Eindscoring: meer inhoud per vacature (taken, vereisten, contract), want die bepaalt de score.
     const user = `## Profiel\n${profileBlock(profile)}\n\n## Vacatures\n${batch.map((j) => describeJob(j, names.get(j.id) ?? "", LIMITS.scoreSnippetChars)).join("\n")}`;
-    return llmJson({ model: "scoring", system: SCORE_SYSTEM, user, schema: ScoringSchema, meter, effort: "medium", maxTokens: 6000 });
+    return llmJson({ model: "scoring", system: SCORE_SYSTEM, user, schema: ScoringSchema, meter, effort, maxTokens: 6000 });
   },
   /** Scores uit een eerdere stap van dezelfde run: niet opnieuw laten beoordelen (tijd en kosten). */
   cache?: Map<number, RawScore>,
   /** Kleinere batches = parallel en dus sneller klaar (Fast Search). */
   batchSize: number = LIMITS.scoreBatchSize,
+  /** Fast Search: 'low' (voorlopig, sneller); Deep Search herbeoordeelt met 'medium'. */
+  effort: "low" | "medium" = "medium",
 ): Promise<ScoreResult> {
   const rec = info ?? { requested: 0, scored: 0, missing: 0, batches: 0, failedBatches: 0 };
   rec.requested = jobsIn.length;

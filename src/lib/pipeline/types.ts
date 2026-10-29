@@ -169,6 +169,8 @@ export type RunState = {
   slowSources?: string[];
   /** OpenAI Web Search al gedaan in Deep Search. */
   aiDone?: boolean;
+  /** Job-id's met een voorlopige (snelle) score uit Fast Search: in Deep Search opnieuw beoordelen. */
+  provisionalScores?: number[];
   /** Automatische tweede zoekronde al gedaan (max één keer). */
   secondRoundDone?: boolean;
   /** Run gestopt na het profiel omdat er geen woonplaats was. */

@@ -21,7 +21,7 @@ import { minScore100 } from "@/lib/settings";
 import { findJobsPage } from "./findJobsPage";
 import { extractFromAts, extractFromPage } from "./extract";
 import { preselect, scoreJobs, quickShortlist, type RawScore } from "./score";
-import { contentHash, freshVerification, readCache, saveVerifications, scoreKey, sha, writeCache } from "./index-cache";
+import { contentHash, freshVerification, profileFingerprint, readCache, saveVerifications, scoreKey, sha, writeCache } from "./index-cache";
 import { prefilterJobs, prefilterWithReasons, upsertJobs, loadJobs, dedupeJobs } from "./jobstore";
 import { applyHardFilters, explainNoMatches, toVerifyFlags } from "./filters";
 import { findContact, employerDomainFor, type Contact } from "./contact";
@@ -403,7 +403,13 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${closed} gesloten · ${shortlist.length} naar eindscoring` });
         emit({ type: "steps", steps: state.steps });
         const scoreInfo = { requested: 0, scored: 0, missing: 0, batches: 0, failedBatches: 0 };
-        const scoreCache = new Map(Object.entries(state.scoreCache ?? {}).map(([k, v]) => [Number(k), v]));
+        // Voorlopige Fast-scores (lichte AI-instelling) worden in Deep Search opnieuw en grondiger beoordeeld.
+        const provisional = new Set(state.provisionalScores ?? []);
+        const scoreCache = new Map(
+          Object.entries(state.scoreCache ?? {})
+            .filter(([k]) => fast || !provisional.has(Number(k)))
+            .map(([k, v]) => [Number(k), v]),
+        );
         // Scores uit eerdere runs: enkel bij hetzelfde profiel, dezelfde vacaturetekst en dezelfde scoringsversie.
         const keyOf = new Map(shortlist.map((j) => [j.id, scoreKey(profile, j.contentHash ?? contentHash(j))]));
         const crossRun = await readCache<RawScore>(Array.from(keyOf.values()), 14);
@@ -415,12 +421,17 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
             fromCrossRun += 1;
           }
         }
-        const result = await scoreJobs(profile, shortlist, names, meter, scoreInfo, undefined, scoreCache, fast ? 4 : LIMITS.scoreBatchSize);
+        const result = await scoreJobs(profile, shortlist, names, meter, scoreInfo, undefined, scoreCache, fast ? 4 : LIMITS.scoreBatchSize, fast ? "low" : "medium");
+        const fresh = new Set((result.raw ?? []).filter((r) => !scoreCache.has(r.id)).map((r) => r.id));
         state.scoreCache = Object.fromEntries((result.raw ?? []).map((r) => [String(r.id), r]));
-        await writeCache(
-          "score",
-          (result.raw ?? []).filter((r) => keyOf.has(r.id) && !crossRun.has(keyOf.get(r.id)!)).map((r) => ({ key: keyOf.get(r.id)!, value: r })),
-        );
+        state.provisionalScores = fast ? Array.from(new Set([...(state.provisionalScores ?? []), ...fresh])) : [];
+        // Enkel grondige (Deep) scores gaan in de cache over runs heen.
+        if (!fast) {
+          await writeCache(
+            "score",
+            (result.raw ?? []).filter((r) => keyOf.has(r.id) && !crossRun.has(keyOf.get(r.id)!)).map((r) => ({ key: keyOf.get(r.id)!, value: r })),
+          );
+        }
         funnel.scoreCacheHits = fromCrossRun;
         funnel.scoring = scoreInfo;
         state = timed(state, fast ? "scoringFast" : "scoring", Date.now() - tScoring);
@@ -724,13 +735,18 @@ async function runAiSearch(
   meter: CostMeter = new CostMeter(),
 ): Promise<{ result: Awaited<ReturnType<typeof searchOpenAIJobs>>; stored: Job[]; xray: XrayStats }> {
   const xrayRun = runXray(profile, plan, meter).catch(() => ({ jobs: [] as NormalizedJob[], stats: { planned: 0, run: 0, hits: {} } as XrayStats }));
+  // OpenAI Web Search is de duurste stap (±€ 0,2): zelfde profiel binnen 24 u = resultaat uit de cache.
+  const aiKey = `aiweb:${profileFingerprint(profile)}`;
+  const aiCached = (await readCache<Awaited<ReturnType<typeof searchOpenAIJobs>>>([aiKey], 1)).get(aiKey);
+  if (aiCached) countCall("cache:openai_websearch");
   const [result, ...late] = await Promise.all([
-    searchOpenAIJobs(profile).catch(
+    aiCached ? Promise.resolve({ ...aiCached, costEur: 0, durationMs: 0 }) : searchOpenAIJobs(profile).catch(
       (e: unknown) => ({ jobs: [], rounds: 0, searches: 0, raw: 0, costEur: 0, durationMs: 0, model: null, queries: [], error: redactSecrets(e instanceof Error ? e.message : String(e)).slice(0, 120) }) as Awaited<ReturnType<typeof searchOpenAIJobs>>,
     ),
     // Bronnen die in Fast Search te traag waren: nu alsnog, zonder tijdslimiet.
     ...slowSources.map((k) => runSource(k, profile).catch(() => ({ jobs: [] as NormalizedJob[], queries: 0, raw: 0 }))),
   ]);
+  if (!aiCached && !result.error && result.jobs.length) await writeCache("aiweb", [{ key: aiKey, value: result }]);
   const xr = await xrayRun;
   const lateJobs = [...late.flatMap((x) => x.jobs), ...xr.jobs];
   const pf = prefilterWithReasons(dedupeJobs([...result.jobs, ...lateJobs]), profile);
