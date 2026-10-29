@@ -24,6 +24,8 @@ export type JobboardResult = {
   perSource: Record<string, number>;
   sources: Record<string, SourceStat>;
   ai?: AiSearchResult;
+  /** Bronnen die de tijdslimiet van Fast Search overschreden. */
+  slow?: string[];
 };
 type SourceOut = { jobs: NormalizedJob[]; queries: number; raw: number; error?: string; skipped?: string };
 
@@ -404,23 +406,37 @@ export async function diagnoseGoogleJobs(title: string, profile: Profile): Promi
  * Alle vacaturebronnen parallel. Een bron die faalt of time-out geeft, stopt de rest niet.
  * OpenAI Web Search (spoor D) loopt mee als aanvullende bron.
  */
-export async function searchJobboards(profile: Profile, deps: { ai?: (p: Profile) => Promise<AiSearchResult> } = {}): Promise<JobboardResult> {
+export async function searchJobboards(profile: Profile, deps: { ai?: (p: Profile) => Promise<AiSearchResult>; timeoutMs?: number } = {}): Promise<JobboardResult> {
   const notes: string[] = [];
   const empty: SourceOut = { jobs: [], queries: 0, raw: 0 };
-  const guard = (label: string, p: Promise<SourceOut>) =>
-    p.catch((e: unknown) => {
+  const slow: string[] = [];
+  // Elke bron apart begrensd: een trage bron houdt de eerste matches niet op; Deep Search haalt ze later op.
+  const guard = (label: string, p: Promise<SourceOut>, key?: string) => {
+    const limited = deps.timeoutMs
+      ? Promise.race([
+          p,
+          new Promise<SourceOut>((resolve) =>
+            setTimeout(() => {
+              if (key) slow.push(key);
+              resolve({ ...empty, error: `trager dan ${Math.round(deps.timeoutMs! / 1000)} s; Deep Search haalt deze bron op` });
+            }, deps.timeoutMs),
+          ),
+        ])
+      : p;
+    return limited.catch((e: unknown) => {
       notes.push(`${label} gaf een fout.`);
       noteFailure(`${label} gaf een fout; de andere bronnen liepen door.`);
       return { ...empty, error: redactSecrets(e instanceof Error ? e.message : String(e)).slice(0, 120) };
     });
+  };
   const aiRun = (deps.ai ?? searchOpenAIJobs)(profile).catch(
     (e: unknown): AiSearchResult => ({ jobs: [], rounds: 0, searches: 0, raw: 0, costEur: 0, durationMs: 0, model: null, queries: [], error: redactSecrets(e instanceof Error ? e.message : String(e)).slice(0, 120) }),
   );
   const [adzuna, web, jooble, google, ai] = await Promise.all([
-    guard("Adzuna", searchAdzuna(profile)),
-    guard("Google-zoekopdrachten (spoor C)", searchTargetedWeb(profile)),
-    guard("Jooble", searchJooble(profile)),
-    guard("Google Jobs", searchGoogleJobs(profile)),
+    guard("Adzuna", searchAdzuna(profile), "adzuna"),
+    guard("Google-zoekopdrachten (spoor C)", searchTargetedWeb(profile), "google_zoek"),
+    guard("Jooble", searchJooble(profile), "jooble"),
+    guard("Google Jobs", searchGoogleJobs(profile), "google_jobs"),
     aiRun,
   ]);
   if (google.error) {
@@ -441,5 +457,14 @@ export async function searchJobboards(profile: Profile, deps: { ai?: (p: Profile
   const sources: Record<string, SourceStat> = {};
   for (const [k, v] of Object.entries(bySource)) sources[k] = { queries: v.queries, raw: v.raw, kept: v.jobs.length, error: v.error, skipped: v.skipped };
   const perSource = Object.fromEntries(Object.entries(bySource).map(([k, v]) => [k, v.jobs.length]));
-  return { jobs: all, notes, braveQueries: web.queries, perSource, sources, ai };
+  return { jobs: all, notes, braveQueries: web.queries, perSource, sources, ai, slow };
+}
+
+/** Eén bron opnieuw, zonder tijdslimiet (Deep Search, voor bronnen die in Fast Search te traag waren). */
+export async function runSource(key: string, profile: Profile): Promise<SourceOut> {
+  if (key === "google_jobs") return searchGoogleJobs(profile);
+  if (key === "jooble") return searchJooble(profile);
+  if (key === "adzuna") return searchAdzuna(profile);
+  if (key === "google_zoek") return searchTargetedWeb(profile);
+  return { jobs: [], queries: 0, raw: 0 };
 }

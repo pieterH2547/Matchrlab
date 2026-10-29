@@ -7,6 +7,7 @@ import type { Job } from "@/lib/db/schema";
 import type { NormalizedJob, Profile } from "./types";
 import { withinProfileRadius } from "@/lib/geo";
 import { isIntermediaryCompany } from "@/lib/blocklist";
+import { contentHash } from "./index-cache";
 
 export function normalizeUrl(url: string): string {
   try {
@@ -144,6 +145,7 @@ export async function upsertJobs(jobsIn: NormalizedJob[]): Promise<Job[]> {
     title: j.title.slice(0, 300),
     location: (j.location ?? "").slice(0, 200) || null,
     descriptionText: (j.descriptionText ?? "").slice(0, 4000) || null,
+    contentHash: contentHash(j),
     // Bedrijfsnaam altijd bewaren, ook als de bron eigen gegevens meegeeft (anders viel ze later weg).
     raw: { ...((j.raw as Record<string, unknown> | null) ?? {}), companyName: j.companyName ?? null } as unknown,
     lastSeenAt: new Date(),
@@ -158,6 +160,7 @@ export async function upsertJobs(jobsIn: NormalizedJob[]): Promise<Job[]> {
         title: sql`excluded.title`,
         location: sql`coalesce(excluded.location, ${schema.jobs.location})`,
         descriptionText: sql`coalesce(excluded.description_text, ${schema.jobs.descriptionText})`,
+        contentHash: sql`coalesce(excluded.content_hash, ${schema.jobs.contentHash})`,
         companyId: sql`coalesce(excluded.company_id, ${schema.jobs.companyId})`,
         // Anders blijft een oude rij zonder bedrijfsnaam staan en valt de vacature later weg.
         raw: sql`excluded.raw`,

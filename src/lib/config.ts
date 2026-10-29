@@ -56,6 +56,8 @@ export const LIMITS = {
   targetRawPool: 30,
   /** Vacatures per AI-scoringsbatch; ontbrekende id's worden één keer opnieuw gevraagd. */
   scoreBatchSize: 10,
+  /** Fast Search: max wachttijd per vacaturebron; tragere bronnen komen in Deep Search. */
+  fastSourceTimeoutMs: 15_000,
   /** Tekens vacaturetekst per vacature in de eindscoring (voorselectie blijft 280). */
   scoreSnippetChars: 900,
   /** Max aandeel van één bron of één functietitel in de selectie voor de scoring. */

@@ -112,7 +112,7 @@ function profileBlock(profile: Profile): string {
 /** Eenvoudige titelgelijkenis met het profiel (0-1), zonder AI. Voor aanvulling en rangschikking. */
 export function titleSimilarity(profile: Profile, title: string): number {
   const words = (t: string) => t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").split(/\s+/).filter((w) => w.length >= 4);
-  const target = new Set([...profile.job_titles, ...(profile.related_titles ?? [])].flatMap(words));
+  const target = new Set([...profile.job_titles, ...(profile.related_titles ?? []), ...(profile.title_variants ?? []), ...(profile.skill_keywords ?? [])].flatMap(words));
   const w = words(title);
   if (!w.length || !target.size) return 0;
   // Ook deelwoorden: "procesoperator" ~ "operator".
@@ -161,6 +161,16 @@ export function diversify<T extends { id: number; source: string; title: string 
   return out;
 }
 
+/**
+ * Snelle voorselectie zonder AI (Fast Search): goedkope deterministische rangschikking op titelgelijkenis,
+ * bron (eigen site eerst) en of de plaats bekend is, met dezelfde diversiteitsregel. Geen wachttijd op een model.
+ */
+export function quickShortlist(profile: Profile, jobsIn: Job[], max: number): Job[] {
+  const sim = new Map(jobsIn.map((j) => [j.id, titleSimilarity(profile, j.title) + 0.25 * titleSimilarity(profile, (j.descriptionText ?? "").slice(0, 300))]));
+  const ranked = [...jobsIn].sort((a, b) => (sim.get(b.id) ?? 0) - (sim.get(a.id) ?? 0) || Number(b.source === "company_site") - Number(a.source === "company_site") || Number(Boolean(b.location)) - Number(Boolean(a.location)));
+  return diversify(ranked, max);
+}
+
 export type PreselectInfo = { input: number; aiKept: number; filled: number; output: number; aiFailed: boolean };
 
 /**
@@ -189,13 +199,19 @@ export async function preselect(
   }
   const keep = new Set<number>();
   const batchSize = 40;
-  for (let i = 0; i < jobsIn.length; i += batchSize) {
-    const batch = jobsIn.slice(i, i + batchSize);
-    const valid = new Set(batch.map((j) => j.id));
-    const ids = await ask(batch).catch(() => {
-      rec.aiFailed = true;
-      return batch.map((j) => j.id);
-    });
+  // Batches parallel i.p.v. na elkaar: was in productie de grootste wachttijd vóór de eerste matches.
+  const batches: Job[][] = [];
+  for (let i = 0; i < jobsIn.length; i += batchSize) batches.push(jobsIn.slice(i, i + batchSize));
+  const answers = await Promise.all(
+    batches.map((batch) =>
+      ask(batch).catch(() => {
+        rec.aiFailed = true;
+        return batch.map((j) => j.id);
+      }),
+    ),
+  );
+  for (const [i, ids] of answers.entries()) {
+    const valid = new Set(batches[i].map((j) => j.id));
     for (const id of ids) if (valid.has(Number(id))) keep.add(Number(id));
   }
   rec.aiKept = keep.size;
@@ -236,6 +252,8 @@ export async function scoreJobs(
   },
   /** Scores uit een eerdere stap van dezelfde run: niet opnieuw laten beoordelen (tijd en kosten). */
   cache?: Map<number, RawScore>,
+  /** Kleinere batches = parallel en dus sneller klaar (Fast Search). */
+  batchSize: number = LIMITS.scoreBatchSize,
 ): Promise<ScoreResult> {
   const rec = info ?? { requested: 0, scored: 0, missing: 0, batches: 0, failedBatches: 0 };
   rec.requested = jobsIn.length;
@@ -249,7 +267,7 @@ export async function scoreJobs(
   let lastError: unknown = null;
   const runBatches = async (list: Job[]) => {
     const batches: Job[][] = [];
-    for (let i = 0; i < list.length; i += LIMITS.scoreBatchSize) batches.push(list.slice(i, i + LIMITS.scoreBatchSize));
+    for (let i = 0; i < list.length; i += batchSize) batches.push(list.slice(i, i + batchSize));
     rec.batches += batches.length;
     const outs = await Promise.all(
       batches.map((b) =>

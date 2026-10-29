@@ -10,6 +10,8 @@ export async function proxy(request: NextRequest) {
   }
   const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value, secret);
 
+  // Geplande taak: eigen controle in de route (CRON_SECRET of de Vercel-cron), geen sessie.
+  if (pathname === "/api/cron/recrawl") return NextResponse.next();
   if (pathname === "/login" || pathname === "/api/auth/login") {
     if (session && pathname === "/login") return NextResponse.redirect(new URL("/", request.url));
     return NextResponse.next();
@@ -22,5 +24,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|icon.png|logo-[a-z-]+\\.png).*)"],
 };

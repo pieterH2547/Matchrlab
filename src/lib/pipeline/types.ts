@@ -161,6 +161,8 @@ export type RunState = {
   verifyCache?: Record<string, { status: "actief" | "gesloten" | "niet geverifieerd"; reason: string }>;
   /** Fast Search (eerste matches) of Deep Search (lokale KMO's, websites, AI). */
   phase?: "fast" | "deep";
+  /** Bronnen die in Fast Search te traag waren; Deep Search haalt ze alsnog op. */
+  slowSources?: string[];
   /** OpenAI Web Search al gedaan in Deep Search. */
   aiDone?: boolean;
   /** Automatische tweede zoekronde al gedaan (max één keer). */
@@ -210,6 +212,8 @@ export type Funnel = {
   aboveThreshold?: number;
   shown?: number;
   toVerify?: { contract: number; werkgever: number };
+  /** Scores hergebruikt uit eerdere runs (zelfde profiel, vacaturetekst en scoringsversie). */
+  scoreCacheHits?: number;
   /** Automatische tweede zoekronde: aantal zoekopdrachten en nieuwe vacatures. */
   secondRound?: { queries: number; newJobs: number };
   /** Per ontdekkingskanaal: unieke vacatures, unieke werkgevers, passende vacatures. */

@@ -8,6 +8,7 @@ import { llmJson, type CostMeter } from "@/lib/llm";
 import { LIMITS } from "@/lib/config";
 import type { AtsDetection } from "@/lib/ats";
 import { ExtractedJobsSchema, type NormalizedJob } from "./types";
+import { readCache, sha, writeCache } from "./index-cache";
 
 const EXTRACT_SYSTEM = `Je krijgt de tekst van de vacaturepagina van een bedrijf (en eventueel de links op die pagina).
 Haal er de open vacatures uit. Per vacature: titel, plaats (lege string als onbekend), absolute URL van de
@@ -27,7 +28,23 @@ export async function extractFromAts(detection: AtsDetection, companyName: strin
   return jobs.map((j) => ({ ...j, source: "company_site" as const, companyName, raw: { ...((j.raw as Record<string, unknown>) ?? {}), via: "ats-feed" } }));
 }
 
+/**
+ * Extractie met cache op url + inhoudshash van de pagina (7 dagen): een ongewijzigde jobpagina wordt
+ * niet opnieuw door de AI gehaald, ook niet voor een andere kandidaat.
+ */
 export async function extractFromPage(
+  input: { jobsUrl: string; text: string; links: LinkInfo[]; companyName: string },
+  meter: CostMeter,
+): Promise<ExtractResult> {
+  const key = `extract:${sha(input.jobsUrl)}:${sha(input.text.replace(/\s+/g, " ").slice(0, 60_000))}`;
+  const hit = (await readCache<NormalizedJob[]>([key], 7).catch(() => new Map<string, NormalizedJob[]>())).get(key);
+  if (hit) return { jobs: hit.map((j) => ({ ...j, companyName: input.companyName })), detailPagesFetched: 0, via: hit.length ? "page" : "none" };
+  const r = await extractFromPageLive(input, meter);
+  await writeCache("extract", [{ key, value: r.jobs }]);
+  return r;
+}
+
+async function extractFromPageLive(
   input: { jobsUrl: string; text: string; links: LinkInfo[]; companyName: string },
   meter: CostMeter,
 ): Promise<ExtractResult> {

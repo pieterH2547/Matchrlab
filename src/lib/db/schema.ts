@@ -111,6 +111,11 @@ export const jobs = pgTable(
     title: text("title").notNull(),
     location: text("location"),
     descriptionText: text("description_text"),
+    /** Vacature-index: hash van titel + tekst (wijziging = opnieuw extraheren/scoren), laatste controle en uitkomst. */
+    contentHash: text("content_hash"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    verificationStatus: text("verification_status"),
+    verificationReason: text("verification_reason"),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
     raw: jsonb("raw"),

@@ -4,6 +4,7 @@
  * Kan het niet betrouwbaar vastgesteld worden, dan 'niet geverifieerd' (nooit stilzwijgend 'actief').
  */
 import { fetchPage } from "@/lib/fetch";
+import { freshVerification } from "./index-cache";
 
 export type VerificationStatus = "actief" | "gesloten" | "niet geverifieerd";
 export type Verification = { status: VerificationStatus; reason: string };
@@ -15,7 +16,7 @@ export const CLOSED_MARKERS =
 /** Bronnen die we volgens hun voorwaarden niet opvragen; enkel het zoekresultaat telt. */
 export const NO_FETCH = /(^|\.)(linkedin\.com|indeed\.[a-z.]+)(\/|$)/i;
 
-type JobLike = { url: string; title: string; source: string; raw?: unknown; lastSeenAt?: Date | string | null };
+type JobLike = { url: string; title: string; source: string; raw?: unknown; lastSeenAt?: Date | string | null; verifiedAt?: Date | string | null; verificationStatus?: string | null; verificationReason?: string | null };
 
 function significantWords(title: string): string[] {
   return title
@@ -69,6 +70,9 @@ export function confirmedThisRun(job: JobLike, runStartedAt: number | null): Ver
 export async function verifyJob(job: JobLike, runStartedAt: number | null = null): Promise<Verification> {
   const now = confirmedThisRun(job, runStartedAt);
   if (now) return now;
+  // Vacature-index: recent (< 24 u) gecontroleerd = hergebruiken, met het tijdstip erbij. Ouder = opnieuw.
+  const fresh = freshVerification(job);
+  if (fresh) return fresh;
   let host = "";
   try {
     host = new URL(job.url).hostname;
