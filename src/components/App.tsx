@@ -13,10 +13,11 @@ export function App({ me }: { me: string }) {
   const [thread, setThread] = useState<RunView[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [busy, setBusy] = useState(false);
+  // Runs die nu lopen. Meerdere runs mogen tegelijk lopen; enkel de thread die zelf loopt is geblokkeerd.
+  const [driving, setDriving] = useState<Set<number>>(() => new Set());
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingUser, setPendingUser] = useState<{ text: string; attachment?: { name: string; size: number } } | null>(null);
-  const activeRun = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const refreshIndex = useCallback(async () => {
@@ -50,6 +51,8 @@ export function App({ me }: { me: string }) {
     });
   }
 
+  const busy = submitting || thread.some((r) => driving.has(r.id));
+
   function updateRunInThread(patch: Partial<RunView> & { id: number }) {
     setThread((t) => t.map((r) => (r.id === patch.id ? { ...r, ...patch } : r)));
   }
@@ -57,8 +60,7 @@ export function App({ me }: { me: string }) {
   /** Drijft een run stap voor stap tot hij klaar is. Werkt ook voor het hervatten van een afgebroken run. */
   const drive = useCallback(
     async (runId: number) => {
-      activeRun.current = runId;
-      setBusy(true);
+      setDriving((s) => new Set(s).add(runId));
       try {
         let status = "profile";
         let guard = 0;
@@ -83,8 +85,11 @@ export function App({ me }: { me: string }) {
       } catch (e) {
         setError(e instanceof Error ? e.message : "Er ging iets mis.");
       } finally {
-        activeRun.current = null;
-        setBusy(false);
+        setDriving((s) => {
+          const n = new Set(s);
+          n.delete(runId);
+          return n;
+        });
         void refreshIndex();
       }
     },
@@ -98,7 +103,7 @@ export function App({ me }: { me: string }) {
       setThread(data.runs);
       setThreadId(data.threadId);
       const unfinished = data.runs.find((r) => r.status !== "done" && r.status !== "failed");
-      if (unfinished && !busy) void drive(unfinished.id);
+      if (unfinished && !driving.has(unfinished.id)) void drive(unfinished.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Kon run niet laden.");
     }
@@ -113,6 +118,7 @@ export function App({ me }: { me: string }) {
 
   async function submit(input: { text: string; file?: File | null; profileOverride?: Partial<Profile> }) {
     if (busy) return;
+    setSubmitting(true);
     setError(null);
     const attachment = input.file ? { name: input.file.name, size: input.file.size } : undefined;
     setPendingUser({ text: input.text, attachment });
@@ -125,11 +131,14 @@ export function App({ me }: { me: string }) {
       setPendingUser(null);
       setThread(data.runs);
       setThreadId(data.threadId);
+      setSubmitting(false);
       if (created.status !== "done") await drive(created.runId);
       else void refreshIndex();
     } catch (e) {
       setPendingUser(null);
       setError(e instanceof Error ? e.message : "Er ging iets mis.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
