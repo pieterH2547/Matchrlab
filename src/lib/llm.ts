@@ -5,7 +5,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
-import { MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
+import { z as zod } from "zod";
+import { MODELS, OPENAI_DEFAULT_MODELS, PRICES_USD_PER_MTOK, USD_TO_EUR } from "@/lib/config";
 import { getSetting } from "@/lib/settings";
 
 let _client: { key: string; client: Anthropic } | null = null;
@@ -47,6 +48,34 @@ export type LlmOptions<T extends z.ZodTypeAny> = {
  * terugstuurt of de vraag weigert; de aanroeper beslist wat daarmee gebeurt.
  */
 export async function llmJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
+  const choice = (await getSetting("AI_PROVIDER")) ?? "auto";
+  const hasClaude = Boolean(await getSetting("ANTHROPIC_API_KEY"));
+  const hasOpenAI = Boolean(await getSetting("OPENAI_API_KEY"));
+  if (choice === "openai") return openaiJson(opts);
+  if (choice === "anthropic" || !hasOpenAI) return anthropicJson(opts);
+  // auto met beide keys: Claude eerst, OpenAI als Claude onbruikbaar is (credits op, key ongeldig, overbelast).
+  if (!hasClaude || claudeDownUntil > Date.now()) return openaiJson(opts);
+  try {
+    return await anthropicJson(opts);
+  } catch (e) {
+    if (isProviderUnavailable(e)) {
+      claudeDownUntil = Date.now() + 15 * 60 * 1000;
+      console.warn("[llm] Claude onbruikbaar, overgeschakeld naar OpenAI.");
+      return openaiJson(opts);
+    }
+    throw e;
+  }
+}
+
+let claudeDownUntil = 0;
+
+function isProviderUnavailable(e: unknown): boolean {
+  const status = (e as { status?: number }).status;
+  const msg = e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
+  return status === 401 || status === 402 || status === 403 || status === 429 || status === 529 || /credit balance|billing|insufficient|overloaded|api-key ontbreekt/.test(msg);
+}
+
+async function anthropicJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
   const model = MODELS[opts.model ?? "cheap"];
   const res = await (await client()).messages.parse({
     model,
@@ -61,7 +90,81 @@ export async function llmJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Prom
   return res.parsed_output as z.infer<T>;
 }
 
+type OpenAIChat = {
+  choices?: { message?: { content?: string | null; refusal?: string | null } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  error?: { message?: string };
+};
+
+/**
+ * OpenAI Chat Completions met een JSON-schema afgeleid van hetzelfde Zod-schema.
+ * Niet-strikt (onze schema's gebruiken min/max), daarom valideren we zelf en proberen we één keer opnieuw.
+ */
+async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
+  const key = await getSetting("OPENAI_API_KEY");
+  if (!key) throw new Error("OpenAI API-key ontbreekt. Vul ze in via Instellingen.");
+  const model =
+    opts.model === "scoring"
+      ? (await getSetting("OPENAI_MODEL_SCORING")) ?? OPENAI_DEFAULT_MODELS.scoring
+      : (await getSetting("OPENAI_MODEL_CHEAP")) ?? OPENAI_DEFAULT_MODELS.cheap;
+  const jsonSchema = zod.toJSONSchema(opts.schema as unknown as zod.ZodType) as Record<string, unknown>;
+  delete jsonSchema.$schema;
+  const reasoning = /^(gpt-5|o\d)/.test(model);
+  const messages: { role: string; content: string }[] = [
+    { role: reasoning ? "developer" : "system", content: `${opts.system}\n\nAntwoord uitsluitend met JSON volgens het gevraagde schema.` },
+    { role: "user", content: opts.user },
+  ];
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const body: Record<string, unknown> = {
+      model,
+      messages,
+      response_format: { type: "json_schema", json_schema: { name: "matchr_output", schema: jsonSchema, strict: false } },
+      // Redeneermodellen gebruiken een deel van het budget om te denken; ruimer zetten.
+      max_completion_tokens: (opts.maxTokens ?? 4096) * (reasoning ? 4 : 1),
+    };
+    if (reasoning) body.reasoning_effort = opts.effort === "medium" ? "medium" : "low";
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as OpenAIChat;
+    if (!res.ok) {
+      const err = new Error(`OpenAI gaf HTTP ${res.status}: ${data.error?.message ?? "onbekende fout"}`) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
+    }
+    opts.meter.add(model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+    const msg = data.choices?.[0]?.message;
+    if (msg?.refusal) throw new Error("Het model weigerde deze aanvraag.");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(msg?.content ?? "");
+    } catch {
+      parsed = undefined;
+    }
+    const check = opts.schema.safeParse(parsed);
+    if (check.success) return check.data as z.infer<T>;
+    messages.push({ role: "assistant", content: msg?.content ?? "" }, { role: "user", content: `Je JSON klopte niet met het schema: ${check.error.message.slice(0, 600)}. Geef enkel de verbeterde JSON.` });
+  }
+  throw new Error("Het model gaf geen geldige gestructureerde output.");
+}
+
 /** Ruwe schatting van tokens voor tekst die we nog niet verstuurd hebben. */
 export function approxTokens(text: string): number {
   return Math.ceil(text.length / 3.5);
+}
+
+/** Testknop in Instellingen: één piepkleine gestructureerde aanroep bij de gekozen aanbieder. */
+export async function testAi(provider: "anthropic" | "openai"): Promise<{ ok: boolean; ms: number; error?: string }> {
+  const t = Date.now();
+  const meter = new CostMeter();
+  const opts = { system: "Test.", user: 'Antwoord met {"ok": true}.', schema: zod.object({ ok: zod.boolean() }), meter, maxTokens: 50 };
+  try {
+    const r = provider === "openai" ? await openaiJson(opts) : await anthropicJson(opts);
+    return { ok: r.ok === true, ms: Date.now() - t };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t, error: (e instanceof Error ? e.message : String(e)).slice(0, 160) };
+  }
 }

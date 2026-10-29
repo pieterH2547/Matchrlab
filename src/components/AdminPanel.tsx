@@ -18,7 +18,7 @@ type Setting = {
 };
 
 const GROUPS: { title: string; keys: string[] }[] = [
-  { title: "Verplicht", keys: ["ANTHROPIC_API_KEY"] },
+  { title: "AI-model (één van beide is verplicht)", keys: ["AI_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_MODEL_CHEAP", "OPENAI_MODEL_SCORING"] },
   { title: "Zoeken op het web (bedrijven ontdekken)", keys: ["SEARCH_PROVIDER", "LINKUP_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "BRAVE_SEARCH_API_KEY"] },
   { title: "Vacaturebronnen", keys: ["ADZUNA_APP_ID", "ADZUNA_APP_KEY", "JOOBLE_API_KEY"] },
   { title: "Pagina's lezen en budget", keys: ["JINA_API_KEY", "FIRECRAWL_API_KEY", "ANTHROPIC_MONTHLY_BUDGET_EUR"] },

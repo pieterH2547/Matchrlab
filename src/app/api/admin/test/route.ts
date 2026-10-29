@@ -4,6 +4,7 @@ import { SEARCH_PROVIDERS, testProvider, type SearchProvider } from "@/lib/searc
 import { searchAdzuna, searchJooble } from "@/lib/pipeline/jobboards";
 import { fetchViaFirecrawl } from "@/lib/fetch";
 import { normalizeProfile } from "@/lib/pipeline/profile";
+import { testAi } from "@/lib/llm";
 
 export const maxDuration = 60;
 
@@ -13,6 +14,10 @@ export async function GET(request: Request) {
     await requireSession();
     const tool = new URL(request.url).searchParams.get("tool") ?? "";
     const t = Date.now();
+    if (tool === "claude" || tool === "openai") {
+      const r = await testAi(tool === "claude" ? "anthropic" : "openai");
+      return NextResponse.json({ tool, ok: r.ok, count: r.ok ? 1 : 0, ms: r.ms, error: r.error });
+    }
     if ((SEARCH_PROVIDERS as string[]).includes(tool)) {
       const r = await testProvider(tool as SearchProvider, "procesoperator vacature Mechelen");
       return NextResponse.json({ tool, ...r });

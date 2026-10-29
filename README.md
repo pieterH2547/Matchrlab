@@ -34,6 +34,14 @@ werkgever), elk met een score op 10 (kerntaken 3, vaardigheden 3, senioriteit 2,
 en één risico, en max 3 open vragen aan de kandidaat. Enkel rechtstreekse werkgevers met vast contract binnen de straal;
 interim, freelance, tijdelijk, bureaus, harde blokkades en alles onder 6/10 vallen weg. Geen outreach, geen drafts.
 
+## AI-model: Claude of OpenAI
+
+Alle AI-aanroepen lopen via `llmJson` in `src/lib/llm.ts`. In Instellingen kies je `AI_PROVIDER`:
+`auto` (Claude als die key er is en werkt, anders OpenAI; zijn de Claude-credits op, dan schakelt het 15 minuten naar
+OpenAI), `anthropic` of `openai`. OpenAI-modellen zijn aanpasbaar zonder code (`OPENAI_MODEL_CHEAP`, standaard
+gpt-5-mini; `OPENAI_MODEL_SCORING`, standaard gpt-5). Een ChatGPT-abonnement bevat geen API-tegoed: de key komt van
+platform.openai.com. Instellingen heeft een testknop voor beide.
+
 ## Toegang
 
 Collega's geven enkel hun naam (voor "wie deed welke run"); er is geen wachtwoord, ook niet voor `/admin`. Opgeslagen keys worden nooit getoond; Instellingen houdt bij wie een key het laatst wijzigde. Wie de URL kent kan runs starten en keys vervangen; het maandbudget begrenst de kosten. `APP_PASSWORD` blijft nodig als sleutel voor sessiecookies en de versleuteling van keys.

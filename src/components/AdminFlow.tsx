@@ -33,7 +33,7 @@ const STEPS: Step[] = [
     title: "Profiel opstellen",
     short: "Cv lezen",
     what: "Leest het cv (pdf, docx) en je opdracht. Maakt functietitels, regio en straal, uitsluitingen, de kandidaat in 3 regels en open vragen.",
-    tools: [{ name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai" }],
+    tools: [{ name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" }],
   },
   {
     n: 2,
@@ -52,7 +52,7 @@ const STEPS: Step[] = [
     title: "Bedrijven ontdekken",
     short: "Bedrijven vinden",
     what: "Claude bedenkt zoekopdrachten naar eindwerkgevers in de regio; de zoekketen haalt bedrijfssites op. Valt een zoekmachine uit, dan neemt de volgende over.",
-    tools: [{ name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai" }, ...SEARCH_CHAIN],
+    tools: [{ name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" }, ...SEARCH_CHAIN],
     rules: ["Enkel gemeenten binnen de straal", "Jobboards, interim-, recruitment- en consultancybureaus: uitgesloten"],
   },
   {
@@ -60,7 +60,7 @@ const STEPS: Step[] = [
     title: "Jobpagina vinden",
     short: "Jobpagina vinden",
     what: "Per bedrijf: ATS herkennen, standaardpaden (/jobs, /vacatures, …) proberen, de homepage-links laten kiezen, of de zoekketen met site:.",
-    tools: [{ name: "ATS-detectie", free: true }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai" }, { name: "Zoekketen", free: true, note: "zie stap 3" }],
+    tools: [{ name: "ATS-detectie", free: true }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" }, { name: "Zoekketen", free: true, note: "zie stap 3" }],
     rules: ["Homepage van een tussenpersoon: bedrijf overslaan"],
   },
   {
@@ -72,7 +72,7 @@ const STEPS: Step[] = [
       { name: "ATS-feeds (Recruitee, Greenhouse, Lever, …)", free: true, domain: "recruitee.com" },
       { name: "Jina Reader", free: true, note: "key optioneel", domain: "jina.ai" },
       { name: "Firecrawl", key: "FIRECRAWL_API_KEY", test: "firecrawl", domain: "firecrawl.dev" },
-      { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai" },
+      { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" },
     ],
   },
   {
@@ -81,8 +81,8 @@ const STEPS: Step[] = [
     short: "Scoren",
     what: "Haiku doet een grove voorselectie; Sonnet scoort op 10: kerntaken 3, vaardigheden 3, senioriteit 2, sector 1, mobiliteit 1, met één argument en één risico.",
     tools: [
-      { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai" },
-      { name: "Claude Sonnet", key: "ANTHROPIC_API_KEY", domain: "claude.ai" },
+      { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" },
+      { name: "Claude Sonnet", key: "ANTHROPIC_API_KEY", domain: "claude.ai" }, { name: "OpenAI (scoring)", key: "OPENAI_API_KEY", domain: "openai.com" },
     ],
     rules: ["Minstens 6/10", "Vast contract, eindwerkgever bij naam", "Binnen de straal", "Max 2 per werkgever, max 10 in totaal"],
   },
@@ -261,7 +261,7 @@ export function AdminFlow({ settings }: { settings: SettingLite[] }) {
                       )}
                       {t && t !== "busy" && (
                         <span className={t.ok ? "text-green-700" : "text-red-700"}>
-                          {t.ok ? `ok · ${t.count} resultaten · ${(t.ms / 1000).toFixed(1)} s` : `faalt${t.error ? `: ${t.error}` : ""}`}
+                          {t.ok ? `ok · ${(t.ms / 1000).toFixed(1)} s${t.count > 1 ? ` · ${t.count} resultaten` : ""}` : `faalt${t.error ? `: ${t.error}` : ""}`}
                         </span>
                       )}
                     </span>

@@ -10,8 +10,14 @@ export const MODELS = {
   scoring: "claude-sonnet-5-5",
 } as const;
 
-/** Prijzen in USD per miljoen tokens (Anthropic first-party API, okt. 2026). */
+/** Standaardmodellen bij OpenAI; aanpasbaar in Instellingen zonder code. */
+export const OPENAI_DEFAULT_MODELS = { cheap: "gpt-5-mini", scoring: "gpt-5" } as const;
+
+/** Prijzen in USD per miljoen tokens (schatting; onbekende modellen vallen terug op een voorzichtige standaard). */
 export const PRICES_USD_PER_MTOK: Record<string, { input: number; output: number }> = {
+  "gpt-5-mini": { input: 0.25, output: 2 },
+  "gpt-5": { input: 1.25, output: 10 },
+  "gpt-5-nano": { input: 0.05, output: 0.4 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5 },
   "claude-sonnet-5-5": { input: 2, output: 10 },
 };
