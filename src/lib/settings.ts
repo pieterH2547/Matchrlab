@@ -29,11 +29,11 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 export type SettingKey = SecretKey | ConfigKey;
 
 export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url?: string; required?: boolean; options?: string[] }> = {
-  ANTHROPIC_API_KEY: { label: "Anthropic API-key", help: "Haiku en Sonnet. Zonder deze key doet Matchr niets.", url: "https://console.anthropic.com/settings/keys", required: true },
-  AI_PROVIDER: { label: "AI-model", help: "auto = Claude als die key er is en werkt, anders OpenAI. Zijn de Claude-credits op, dan schakelt auto vanzelf naar OpenAI.", options: ["auto", "anthropic", "openai"] },
+  ANTHROPIC_API_KEY: { label: "Anthropic API-key", help: "Claude Haiku, reserve als OpenAI niet werkt. Eén van beide AI-keys is nodig.", url: "https://console.anthropic.com/settings/keys", },
+  AI_PROVIDER: { label: "AI-model", help: "auto = OpenAI eerst, Claude als reserve. Is het OpenAI-tegoed op of de key ongeldig, dan schakelt auto 15 minuten naar Claude.", options: ["auto", "anthropic", "openai"] },
   OPENAI_API_KEY: { label: "OpenAI API-key", help: "Aan te maken op platform.openai.com door een beheerder van de RecruitrLAB-organisatie. Een ChatGPT-abonnement bevat geen API-tegoed.", url: "https://platform.openai.com/api-keys" },
   OPENAI_MODEL_CHEAP: { label: "OpenAI-model voor het grove werk", help: "Cv lezen, zoekopdrachten, vacatures uitlezen, voorselectie. Standaard gpt-5-mini." },
-  OPENAI_MODEL_SCORING: { label: "OpenAI-model voor de scoring", help: "De eindscore op 10 met argument en risico. Standaard gpt-5." },
+  OPENAI_MODEL_SCORING: { label: "OpenAI-model voor de scoring", help: "De eindscore op 10 met argument en risico. Standaard gpt-5-mini (licht en goedkoop); zet gpt-5 enkel als de scores te grof zijn." },
   SEARCH_PROVIDER: { label: "Zoekmachine vooraan", help: "auto = Linkup, dan Tavily, dan Exa, dan Brave, dan Claude web search (±€0,01 per zoekopdracht). Is er één op of kapot, dan neemt de volgende over.", options: ["auto", "linkup", "tavily", "exa", "brave", "anthropic"] },
   LINKUP_API_KEY: { label: "Linkup API-key", help: "Gratis ±4.000 zoekopdrachten per maand met een professioneel e-mailadres. Eerste keuze.", url: "https://app.linkup.so" },
   TAVILY_API_KEY: { label: "Tavily API-key", help: "Gratis 1.000 credits per maand, geen kaart nodig.", url: "https://app.tavily.com" },

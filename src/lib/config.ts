@@ -6,12 +6,12 @@
 export const MODELS = {
   /** Goedkoop model voor profiel, zoekopdrachten, navigatie, extractie en voorselectie. */
   cheap: "claude-haiku-5-5",
-  /** Sterker model, enkel voor de eindscoring van de top-30. */
-  scoring: "claude-sonnet-5-5",
+  /** Eindscoring: ook het lichte model, om de kost laag te houden. */
+  scoring: "claude-haiku-5-5",
 } as const;
 
 /** Standaardmodellen bij OpenAI; aanpasbaar in Instellingen zonder code. */
-export const OPENAI_DEFAULT_MODELS = { cheap: "gpt-5-mini", scoring: "gpt-5" } as const;
+export const OPENAI_DEFAULT_MODELS = { cheap: "gpt-5-mini", scoring: "gpt-5-mini" } as const;
 
 /** Prijzen in USD per miljoen tokens (schatting; onbekende modellen vallen terug op een voorzichtige standaard). */
 export const PRICES_USD_PER_MTOK: Record<string, { input: number; output: number }> = {

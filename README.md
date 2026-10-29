@@ -2,7 +2,7 @@
 
 Interne tool van RecruitrLAB. Een collega laadt een cv op plus wat vrije tekst, en Matchr zoekt zelf gericht vacatures: op jobboards én rechtstreeks op de websites van bedrijven die het per cv ontdekt. De interface voelt als een chat; elke zoekstap is live zichtbaar.
 
-Stack: Next.js 16 (App Router, TypeScript, Tailwind 4), Neon Postgres via Drizzle, Anthropic SDK (Haiku voor alles, Sonnet voor de eindscoring), Brave Search, Adzuna, Jina Reader. Draait op Vercel.
+Stack: Next.js 16 (App Router, TypeScript, Tailwind 4), Neon Postgres via Drizzle, OpenAI (gpt-5-mini) met Claude Haiku als reserve, zoekketen Linkup/Tavily/Exa, Adzuna, Jooble, Jina Reader, Firecrawl. Draait op Vercel.
 
 ![Matchr](docs/screenshot-app.png)
 
@@ -17,7 +17,7 @@ Een run is een reeks korte stappen. De browser roept `POST /api/runs/:id/step` t
 | 3 Bedrijven ontdekken | Haiku bedenkt 5-8 zoekopdrachten ("maakbedrijven ploegenwerk regio Mechelen"), Brave zoekt, resultaten → max 80 unieke domeinen minus de blocklist. Bedrijven die < 7 dagen geleden gecrawld zijn worden overgeslagen; hun bestaande vacatures gaan mee | Haiku |
 | 4 Jobpagina vinden | per domein, goedkoop-eerst: ATS-detectie → standaardpaden → Haiku kiest uit de homepage-links → Brave `site:domein vacature`. Niets gevonden → `ats = none`, niet opnieuw proberen | Haiku (enkel 4c) |
 | 5 Vacatures extraheren | ATS-feed als die er is, anders Haiku op de paginatekst (gewone fetch, Jina Reader voor JS-shells, alles door `page_cache`). Enkel titels → max 10 detailpagina's | Haiku |
-| 6 Scoren | dedupliceren op url en titel+bedrijf, Haiku-voorselectie over alles, top-30 naar Sonnet voor score 0-100 + één zin, +5 voor bedrijfssites | Haiku + Sonnet |
+| 6 Scoren | dedupliceren op url en titel+bedrijf, voorselectie over alles, top-30 krijgt een score op 10 met argument en risico | licht model |
 
 Vervolgberichten in dezelfde thread: Haiku beslist of het een verfijning is (profiel aanpassen, opnieuw zoeken vanaf stap 2; eerder bezochte bedrijven worden hergebruikt) of een vraag over de resultaten (wordt beantwoord zonder nieuwe zoektocht). Klikken op een parameter-chip start een run met aangepaste parameters.
 
@@ -37,9 +37,9 @@ interim, freelance, tijdelijk, bureaus, harde blokkades en alles onder 6/10 vall
 ## AI-model: Claude of OpenAI
 
 Alle AI-aanroepen lopen via `llmJson` in `src/lib/llm.ts`. In Instellingen kies je `AI_PROVIDER`:
-`auto` (Claude als die key er is en werkt, anders OpenAI; zijn de Claude-credits op, dan schakelt het 15 minuten naar
-OpenAI), `anthropic` of `openai`. OpenAI-modellen zijn aanpasbaar zonder code (`OPENAI_MODEL_CHEAP`, standaard
-gpt-5-mini; `OPENAI_MODEL_SCORING`, standaard gpt-5). Een ChatGPT-abonnement bevat geen API-tegoed: de key komt van
+`auto` (OpenAI eerst, Claude als reserve; is het OpenAI-tegoed op of de key ongeldig, dan 15 minuten Claude),
+`anthropic` of `openai`. Overal lichte modellen: gpt-5-mini voor alles (aanpasbaar via `OPENAI_MODEL_CHEAP` en
+`OPENAI_MODEL_SCORING`), Claude Haiku als reserve, ook voor de scoring. Een ChatGPT-abonnement bevat geen API-tegoed: de key komt van
 platform.openai.com. Instellingen heeft een testknop voor beide.
 
 ## Toegang
@@ -82,7 +82,7 @@ Zie `.env.example`. Lokaal in `.env.local`, op Vercel onder Settings → Environ
 
 | Naam | Verplicht | Waarvoor |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | ja | Haiku en Sonnet |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | één van beide | OpenAI eerst, Claude als reserve |
 | `DATABASE_URL` | ja | Neon Postgres (pooled connection string) |
 | `APP_PASSWORD` | ja | gedeeld teamwachtwoord; ook de sleutel waarmee sessiecookies getekend worden |
 | `BRAVE_SEARCH_API_KEY` | nee | zonder Brave of Google zoekt Matchr via DuckDuckGo |
@@ -142,15 +142,15 @@ Status per ATS:
 
 Doel: < € 0,15 per run en < € 50 per maand bij 15 runs/dag. Alles wat kost staat in `src/lib/config.ts`.
 
-- Haiku voor alles behalve de eindscoring; Sonnet enkel voor de top-30. Modelnamen en prijzen in `config.ts`.
+- Overal het lichte model (gpt-5-mini of Claude Haiku), ook voor de eindscoring van de top-30. Modelnamen en prijzen in `config.ts`.
 - Geen pagina twee keer binnen 7 dagen (`page_cache`), geen bedrijf twee keer binnen 7 dagen (`companies.last_crawled_at`).
-- Per run: max 80 domeinen, max 10 detailpagina's per bedrijf, max 30 vacatures naar Sonnet, max 12 Brave-queries.
+- Per run: max 80 domeinen, max 10 detailpagina's per bedrijf, max 30 vacatures naar de eindscoring, max 12 Brave-queries.
 - Brave: maandteller in `usage_counters`; boven 1900 stoppen we met zoeken en gaat de run verder zonder nieuwe bedrijven.
 - Elke LLM-call telt tokens × prijs (USD → EUR × 0,92) op in `runs.cost_estimate_eur`. De zijbalk toont de som per week en per maand.
 - Overschrijdt het maandtotaal `ANTHROPIC_MONTHLY_BUDGET_EUR`, dan weigert `POST /api/runs` nieuwe runs met een duidelijke melding (HTTP 402).
 - Vercel: `maxDuration = 300` op de step-route; de crawlstap geeft na 45 s de controle terug aan de client en gaat bij de volgende aanroep verder waar hij was.
 
-Ruwe schatting per run: ~80 Haiku-calls van gemiddeld 4k input-tokens (≈ € 0,03) + één Sonnet-call van ~12k input / 3k output (≈ € 0,05) + Brave (gratis) ≈ € 0,08.
+Ruwe schatting per run met lichte modellen: enkele centen aan AI, zoeken gratis via de zoekketen.
 
 ## Niet in fase 1
 

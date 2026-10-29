@@ -53,26 +53,27 @@ export async function llmJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Prom
   const hasOpenAI = Boolean(await getSetting("OPENAI_API_KEY"));
   if (choice === "openai") return openaiJson(opts);
   if (choice === "anthropic" || !hasOpenAI) return anthropicJson(opts);
-  // auto met beide keys: Claude eerst, OpenAI als Claude onbruikbaar is (credits op, key ongeldig, overbelast).
-  if (!hasClaude || claudeDownUntil > Date.now()) return openaiJson(opts);
+  // auto met beide keys: OpenAI eerst, Claude als reserve (tegoed op, key ongeldig, overbelast).
+  if (!hasClaude) return openaiJson(opts);
+  if (openaiDownUntil > Date.now()) return anthropicJson(opts);
   try {
-    return await anthropicJson(opts);
+    return await openaiJson(opts);
   } catch (e) {
     if (isProviderUnavailable(e)) {
-      claudeDownUntil = Date.now() + 15 * 60 * 1000;
-      console.warn("[llm] Claude onbruikbaar, overgeschakeld naar OpenAI.");
-      return openaiJson(opts);
+      openaiDownUntil = Date.now() + 15 * 60 * 1000;
+      console.warn("[llm] OpenAI onbruikbaar, overgeschakeld naar Claude.");
+      return anthropicJson(opts);
     }
     throw e;
   }
 }
 
-let claudeDownUntil = 0;
+let openaiDownUntil = 0;
 
 function isProviderUnavailable(e: unknown): boolean {
   const status = (e as { status?: number }).status;
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
-  return status === 401 || status === 402 || status === 403 || status === 429 || status === 529 || /credit balance|billing|insufficient|overloaded|api-key ontbreekt/.test(msg);
+  return status === 401 || status === 402 || status === 403 || status === 429 || status === 529 || /credit balance|billing|insufficient|quota|overloaded|api-key ontbreekt/.test(msg);
 }
 
 async function anthropicJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {

@@ -1,5 +1,5 @@
 /**
- * Stap 6: dedupliceren, Haiku-voorselectie over alles, top-30 naar Sonnet
+ * Stap 6: dedupliceren, voorselectie over alles, top-30 naar het lichte model
  * voor een score op 10 volgens de RecruitrLAB-verdeling, met argument en risico.
  */
 import { llmJson, type CostMeter } from "@/lib/llm";
@@ -85,7 +85,7 @@ export async function preselect(profile: Profile, jobsIn: Job[], names: Map<numb
     for (const id of r.relevant_ids) keep.add(id);
   }
   const kept = jobsIn.filter((j) => keep.has(j.id));
-  // Bedrijfssites eerst, dan boards; zo gaat de interessantste top-30 naar Sonnet.
+  // Bedrijfssites eerst, dan boards; zo gaat de interessantste top-30 naar de eindscoring.
   kept.sort((a, b) => Number(b.source === "company_site") - Number(a.source === "company_site"));
   return kept.slice(0, LIMITS.maxJobsToScore);
 }
