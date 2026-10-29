@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { SEARCH_PROVIDERS, testProvider, type SearchProvider } from "@/lib/search";
-import { searchAdzuna, searchJooble, searchGoogleJobs } from "@/lib/pipeline/jobboards";
+import * as boards from "@/lib/pipeline/jobboards";
 import { fetchViaFirecrawl } from "@/lib/fetch";
 import { normalizeProfile } from "@/lib/pipeline/profile";
 import { testAi } from "@/lib/llm";
@@ -17,6 +17,10 @@ export async function GET(request: Request) {
     if (tool === "claude" || tool === "openai") {
       const r = await testAi(tool === "claude" ? "anthropic" : "openai");
       return NextResponse.json({ tool, ok: r.ok, count: r.ok ? 1 : 0, ms: r.ms, error: r.error });
+    }
+    if (tool === "openai-search") {
+      const r = await testProvider("openai", "procesoperator vacature Mechelen");
+      return NextResponse.json({ tool, ...r });
     }
     if ((SEARCH_PROVIDERS as string[]).includes(tool)) {
       const r = await testProvider(tool as SearchProvider, "procesoperator vacature Mechelen");
@@ -40,8 +44,16 @@ export async function GET(request: Request) {
       hard_requirements: [],
     });
     if (tool === "adzuna" || tool === "jooble" || tool === "googlejobs") {
-      const jobs = tool === "adzuna" ? await searchAdzuna(profile) : tool === "jooble" ? await searchJooble(profile) : await searchGoogleJobs(profile);
-      return NextResponse.json({ tool, ok: jobs.length > 0, count: jobs.length, ms: Date.now() - t, sample: jobs.slice(0, 3).map((j) => `${j.title} — ${j.companyName ?? ""} — ${j.location ?? ""}`) });
+      const jobs = tool === "adzuna" ? await boards.searchAdzuna(profile) : tool === "jooble" ? await boards.searchJooble(profile) : await boards.searchGoogleJobs(profile);
+      const error = tool === "googlejobs" ? boards.googleJobsLastError : null;
+      return NextResponse.json({
+        tool,
+        ok: jobs.length > 0,
+        count: jobs.length,
+        ms: Date.now() - t,
+        error: jobs.length > 0 ? undefined : error ?? "verbinding werkt, maar 0 vacatures voor 'procesoperator Mechelen'",
+        sample: jobs.slice(0, 3).map((j) => `${j.title} — ${j.companyName ?? ""} — ${j.location ?? ""}`),
+      });
     }
     if (tool === "firecrawl") {
       const md = await fetchViaFirecrawl("https://www.vdab.be/");

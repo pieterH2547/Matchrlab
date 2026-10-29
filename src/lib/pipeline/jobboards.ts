@@ -6,7 +6,8 @@
  * zoeken we VDAB-vacatures via Brave met `site:vdab.be/vindeenjob`, wat
  * per run 2 queries kost en enkel titel + url + snippet oplevert.
  */
-import { fetchJson } from "@/lib/fetch";
+import { fetchJson, fetchRaw } from "@/lib/fetch";
+import { redactSecrets } from "@/lib/redact";
 import { webSearch } from "@/lib/search";
 import { getSetting } from "@/lib/settings";
 import { LIMITS } from "@/lib/config";
@@ -153,15 +154,31 @@ type GoogleJob = {
  * Google Jobs via SerpApi: de vacatures die Google van alle sites verzamelt (ook bedrijfssites).
  * We nemen bij voorkeur de sollicitatielink van de werkgever zelf, niet die van een jobboard.
  */
+/** Laatste foutmelding van Google Jobs, voor de testknop in Instellingen. */
+export let googleJobsLastError: string | null = null;
+
 export async function searchGoogleJobs(profile: Profile): Promise<NormalizedJob[]> {
   const key = await getSetting("SERPAPI_API_KEY");
   if (!key) return [];
+  googleJobsLastError = null;
   const out: NormalizedJob[] = [];
   await Promise.all(
     profile.job_titles.slice(0, 2).map(async (title) => {
-      const params = new URLSearchParams({ engine: "google_jobs", q: title, location: `${profile.region}, Belgium`, hl: "nl", gl: "be", api_key: key });
-      const data = await fetchJson<{ jobs_results?: GoogleJob[] }>(`https://serpapi.com/search.json?${params}`);
-      for (const j of data?.jobs_results ?? []) {
+      // Regio in de zoekvraag zelf: SerpApi kent niet elke gemeente als 'location'.
+      const params = new URLSearchParams({ engine: "google_jobs", q: `${title} ${profile.region}`.trim(), hl: "nl", gl: "be", api_key: key });
+      const r = await fetchRaw(`https://serpapi.com/search.json?${params}`);
+      let data: { jobs_results?: GoogleJob[]; error?: string } = {};
+      try {
+        data = JSON.parse(r.body);
+      } catch {
+        data = {};
+      }
+      if (r.status !== 200 || data.error) {
+        // "geen resultaten" is geen fout; al de rest wel (key, tegoed op, …).
+        if (!/hasn't returned any results|no results/i.test(data.error ?? "")) googleJobsLastError = redactSecrets(data.error ?? `HTTP ${r.status}`);
+        return;
+      }
+      for (const j of data.jobs_results ?? []) {
         if (!j.title) continue;
         if (/interim|tijdelijk|temporary|freelance|uitzend/i.test(j.detected_extensions?.schedule_type ?? "")) continue;
         const company = (j.company_name ?? "").trim();

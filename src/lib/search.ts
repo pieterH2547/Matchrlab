@@ -13,13 +13,15 @@ import { MODELS } from "@/lib/config";
 import { recordSearches, reserveBraveQueries } from "@/lib/budget";
 import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
+import { resolveOpenAIModel } from "@/lib/openaiModels";
 
 export type SearchResult = { url: string; title: string; description: string };
-export type SearchProvider = "serper" | "linkup" | "tavily" | "exa" | "brave" | "anthropic";
+export type SearchProvider = "serper" | "linkup" | "tavily" | "exa" | "brave" | "openai" | "anthropic";
 export type SearchOptions = { count?: number; freshness?: "pw" | "pm" | "py" };
 
-const ORDER: SearchProvider[] = ["serper", "linkup", "tavily", "exa", "brave", "anthropic"];
-const KEY: Record<SearchProvider, "SERPER_API_KEY" | "LINKUP_API_KEY" | "TAVILY_API_KEY" | "EXA_API_KEY" | "BRAVE_SEARCH_API_KEY" | "ANTHROPIC_API_KEY"> = {
+const ORDER: SearchProvider[] = ["serper", "linkup", "tavily", "exa", "brave", "openai", "anthropic"];
+const KEY: Record<SearchProvider, "SERPER_API_KEY" | "LINKUP_API_KEY" | "TAVILY_API_KEY" | "EXA_API_KEY" | "BRAVE_SEARCH_API_KEY" | "OPENAI_API_KEY" | "ANTHROPIC_API_KEY"> = {
+  openai: "OPENAI_API_KEY",
   serper: "SERPER_API_KEY",
   linkup: "LINKUP_API_KEY",
   tavily: "TAVILY_API_KEY",
@@ -101,6 +103,7 @@ async function runProvider(p: SearchProvider, query: string, opts: SearchOptions
   if (p === "tavily") return tavilySearch(key, query, opts);
   if (p === "exa") return exaSearch(key, query, opts);
   if (p === "brave") return braveSearch(key, query, opts);
+  if (p === "openai") return openaiWebSearch(key, query, opts);
   return anthropicSearch(query, opts);
 }
 
@@ -206,6 +209,39 @@ async function braveSearch(key: string, query: string, opts: SearchOptions): Pro
   });
   if (!data) return null;
   return (data.web?.results ?? []).map((r) => ({ url: r.url, title: r.title, description: r.description ?? "" }));
+}
+
+/**
+ * ChatGPT web search via de OpenAI Responses API, met dezelfde key als de AI.
+ * Betalend (±een cent per zoekopdracht), daarom het laatste vangnet in de keten.
+ */
+async function openaiWebSearch(key: string, query: string, opts: SearchOptions): Promise<SearchResult[] | null> {
+  const model = await resolveOpenAIModel("cheap");
+  const freshness = opts.freshness === "pw" ? " (voorbije week)" : opts.freshness === "pm" ? " (voorbije maand)" : "";
+  const data = (await postJson(
+    "https://api.openai.com/v1/responses",
+    {
+      model,
+      tools: [{ type: "web_search", user_location: { type: "approximate", country: "BE" } }],
+      tool_choice: "required",
+      include: ["web_search_call.action.sources"],
+      input: `Zoek op het web naar: ${query}${freshness}. Antwoord enkel met de lijst van gevonden pagina's.`,
+    },
+    { authorization: `Bearer ${key}` },
+  )) as { output?: { type?: string; action?: { sources?: { url?: string; title?: string }[] }; content?: { annotations?: { type?: string; url?: string; title?: string }[] }[] }[] } | null;
+  if (!data) return null;
+  const seen = new Set<string>();
+  const out: SearchResult[] = [];
+  const add = (url?: string, title?: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    out.push({ url, title: (title ?? "").trim(), description: "" });
+  };
+  for (const item of data.output ?? []) {
+    for (const src of item.action?.sources ?? []) add(src.url, src.title);
+    for (const c of item.content ?? []) for (const a of c.annotations ?? []) if (a.type === "url_citation") add(a.url, a.title);
+  }
+  return out.slice(0, opts.count ?? 20);
 }
 
 /**

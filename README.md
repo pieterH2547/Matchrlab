@@ -65,6 +65,7 @@ en neemt de volgende over.
 | Tavily | `TAVILY_API_KEY` | 1.000 credits/maand | |
 | Exa | `EXA_API_KEY` | ±$10/maand | |
 | Brave | `BRAVE_SEARCH_API_KEY` | $5 tegoed/maand, kaart nodig | optioneel |
+| ChatGPT web search | `OPENAI_API_KEY` | betalend, ±een cent per zoekopdracht | laatste vangnet, zelfde key als de AI |
 | Claude web search | `ANTHROPIC_API_KEY` | betalend, ±$0,01/zoekopdracht | enkel als `SEARCH_PROVIDER=anthropic` |
 
 `SEARCH_PROVIDER` = auto (standaard) volgt deze volgorde zonder Claude; een vaste keuze zet die provider vooraan.

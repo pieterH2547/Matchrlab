@@ -29,6 +29,7 @@ const SEARCH_ALL: Tool[] = [
   { name: "Linkup", key: "LINKUP_API_KEY", test: "linkup", domain: "linkup.so" },
   { name: "Tavily", key: "TAVILY_API_KEY", test: "tavily", domain: "tavily.com" },
   { name: "Exa", key: "EXA_API_KEY", test: "exa", domain: "exa.ai" },
+  { name: "ChatGPT web search", key: "OPENAI_API_KEY", test: "openai-search", domain: "openai.com", note: "betalend vangnet" },
 ];
 
 /** Zoekketen in de echte volgorde: Serper, dan Linkup, Tavily, Exa. */
@@ -36,7 +37,7 @@ function searchChain(ctx: Ctx): Tool[] {
   let rank = 0;
   return SEARCH_ALL.map((t) => {
     const active = ctx.has(t.key!);
-    return { ...t, active, note: active ? `${++rank}e` : undefined };
+    return { ...t, active, note: active ? `${++rank}e${t.note ? ` · ${t.note}` : ""}` : t.note };
   });
 }
 
