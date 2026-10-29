@@ -3,10 +3,9 @@ import { requireSession } from "@/lib/session";
 import { deleteSetting, isSettingKey, setSetting, settingsStatus, SETTING_INFO } from "@/lib/settings";
 import { resolveProvider } from "@/lib/search";
 
+/** Instellingen staan open voor iedereen die aangemeld is; keys worden nooit teruggestuurd. */
 async function requireAdmin() {
-  const s = await requireSession();
-  if (!s.admin) throw new Response(JSON.stringify({ error: "Teamwachtwoord nodig." }), { status: 401 });
-  return s;
+  return requireSession();
 }
 
 function errorResponse(e: unknown) {

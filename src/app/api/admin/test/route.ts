@@ -10,8 +10,7 @@ export const maxDuration = 60;
 /** Testknop per tool in Instellingen. Geeft nooit keys terug, enkel ok/aantal/duur. */
 export async function GET(request: Request) {
   try {
-    const s = await requireSession();
-    if (!s.admin) return NextResponse.json({ error: "Teamwachtwoord nodig." }, { status: 401 });
+    await requireSession();
     const tool = new URL(request.url).searchParams.get("tool") ?? "";
     const t = Date.now();
     if ((SEARCH_PROVIDERS as string[]).includes(tool)) {

@@ -155,7 +155,7 @@ export function AdminPanel({ me }: { me: string }) {
           </div>
         </section>
       ))}
-      <p className="text-xs text-ink-faint">Aangemeld als {me}. Keys worden versleuteld met een sleutel afgeleid van het teamwachtwoord; wijzig je dat wachtwoord, dan moeten de keys opnieuw ingevuld worden.</p>
+      <p className="text-xs text-ink-faint">Aangemeld als {me}. Iedereen die aangemeld is kan hier keys plakken of vervangen; opgeslagen keys worden nooit getoond. Wijzig je APP_PASSWORD in Vercel, dan moeten de keys opnieuw ingevuld worden.</p>
     </div>
   );
 }

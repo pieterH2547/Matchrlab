@@ -11,15 +11,12 @@ export async function proxy(request: NextRequest) {
   const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value, secret);
 
   if (pathname === "/login" || pathname === "/api/auth/login") {
-    if (session && pathname === "/login" && !(request.nextUrl.searchParams.get("admin") && !session.admin)) return NextResponse.redirect(new URL("/", request.url));
+    if (session && pathname === "/login") return NextResponse.redirect(new URL("/", request.url));
     return NextResponse.next();
   }
-  const wantsAdmin = pathname === "/admin" || pathname.startsWith("/api/admin/");
-  if (!session || (wantsAdmin && !session.admin)) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: wantsAdmin ? "Teamwachtwoord nodig." : "Niet aangemeld." }, { status: 401 });
-    const url = new URL("/login", request.url);
-    if (wantsAdmin) url.searchParams.set("admin", "1");
-    return NextResponse.redirect(url);
+  if (!session) {
+    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Niet aangemeld." }, { status: 401 });
+    return NextResponse.redirect(new URL("/login", request.url));
   }
   return NextResponse.next();
 }

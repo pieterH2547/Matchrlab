@@ -6,7 +6,7 @@ import { currentSession } from "@/lib/session";
 
 async function AdminWithSession() {
   const session = await currentSession();
-  if (!session?.admin) redirect("/login?admin=1");
+  if (!session) redirect("/login");
   return (
     <main className="min-h-screen">
       <header className="h-14 border-b border-line flex items-center px-4 gap-3">

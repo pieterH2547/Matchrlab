@@ -36,7 +36,7 @@ interim, freelance, tijdelijk, bureaus, harde blokkades en alles onder 6/10 vall
 
 ## Toegang
 
-Collega's geven enkel hun naam (voor "wie deed welke run"); er is geen wachtwoord om Matchr te gebruiken. Enkel `/admin` vraagt het teamwachtwoord (`APP_PASSWORD`), omdat daar de API-keys staan. Wie de URL kent kan dus runs starten; het maandbudget begrenst de schade.
+Collega's geven enkel hun naam (voor "wie deed welke run"); er is geen wachtwoord, ook niet voor `/admin`. Opgeslagen keys worden nooit getoond; Instellingen houdt bij wie een key het laatst wijzigde. Wie de URL kent kan runs starten en keys vervangen; het maandbudget begrenst de kosten. `APP_PASSWORD` blijft nodig als sleutel voor sessiecookies en de versleuteling van keys.
 
 ## API-keys en instellingen: /admin
 
