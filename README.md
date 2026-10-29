@@ -78,8 +78,9 @@ Zie `.env.example`. Lokaal in `.env.local`, op Vercel onder Settings → Environ
 | `DATABASE_URL` | ja | Neon Postgres (pooled connection string) |
 | `APP_PASSWORD` | ja | gedeeld teamwachtwoord; ook de sleutel waarmee sessiecookies getekend worden |
 | `BRAVE_SEARCH_API_KEY` | nee | zonder Brave of Google zoekt Matchr via DuckDuckGo |
-| `GOOGLE_API_KEY`, `GOOGLE_CSE_ID` | nee | Google Custom Search als alternatief |
-| `SEARCH_PROVIDER` | nee (standaard auto) | auto, duckduckgo, google of brave |
+| `LINKUP_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` | nee | gratis zoekketen; zonder keys enkel Claude web search |
+| `JOOBLE_API_KEY`, `FIRECRAWL_API_KEY` | nee | extra vacaturebron en zware jobsites lezen |
+| `SEARCH_PROVIDER` | nee (standaard auto) | auto, linkup, tavily, exa, brave of anthropic |
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | nee | zonder deze wordt Adzuna overgeslagen |
 | `JINA_API_KEY` | nee | r.jina.ai werkt zonder key op de gratis tier; een key geeft hogere limieten |
 | `ANTHROPIC_MONTHLY_BUDGET_EUR` | nee (standaard 50) | boven dit maandtotaal worden nieuwe runs geweigerd |
