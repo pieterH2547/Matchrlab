@@ -119,7 +119,10 @@ export async function duckduckgoSearch(query: string, opts: SearchOptions = {}):
   }
 
   const lite = await fetchRaw(`https://lite.duckduckgo.com/lite/?${params}`, { headers });
-  if (lite.status !== 200) return [];
+  if (lite.status !== 200) {
+    console.warn(`[search] duckduckgo gaf html=${html.status} lite=${lite.status} voor "${query.slice(0, 60)}"`);
+    return [];
+  }
   const $ = cheerio.load(lite.body);
   const out: SearchResult[] = [];
   $("a.result-link").each((_, a) => {
