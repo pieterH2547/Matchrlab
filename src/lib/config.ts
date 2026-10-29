@@ -56,6 +56,15 @@ export const LIMITS = {
   targetRawPool: 30,
   /** Vacatures per AI-scoringsbatch; ontbrekende id's worden één keer opnieuw gevraagd. */
   scoreBatchSize: 10,
+  /** Tekens vacaturetekst per vacature in de eindscoring (voorselectie blijft 280). */
+  scoreSnippetChars: 900,
+  /** Max aandeel van één bron of één functietitel in de selectie voor de scoring. */
+  maxShareSameSource: 0.5,
+  maxShareSameTitle: 0.35,
+  /** Gericht zoekbudget (Google via de zoekketen) per run, verdeeld over titels, gemeenten en bronnen. */
+  targetedQueriesPerRun: 10,
+  /** Tweede zoekronde als minder dan dit aantal vacatures de drempel haalt. */
+  secondRoundBelow: 3,
   /** Minimum dat de voorselectie doorlaat (aangevuld op titelgelijkenis als de AI te streng is). */
   minPreselectKeep: 15,
   /** Niets twee keer binnen deze termijn: pagina's en bedrijven. */

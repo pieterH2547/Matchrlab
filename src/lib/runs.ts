@@ -1,6 +1,7 @@
 /**
  * Runs aanmaken en uitlezen voor de UI. Een thread = reeks runs met dezelfde thread_id.
  */
+import { guessCandidateName, fallbackLabel } from "@/lib/candidateName";
 import { desc, eq, inArray, and, gte, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Run } from "@/lib/db/schema";
@@ -32,6 +33,8 @@ export async function createRun(input: { author: string; cvText: string; freeTex
       .insert(schema.runs)
       .values({
         author: input.author,
+        // Meteen een naam tonen, nog vóór de AI het cv gelezen heeft.
+        candidateName: guessCandidateName(input.attachment?.name, input.cvText),
         cvText: input.cvText || null,
         freeText: input.freeText || null,
         status: "profile",
@@ -128,6 +131,7 @@ export async function matchesForRun(runId: number): Promise<MatchView[]> {
     verification: m.verification ?? "niet geverifieerd",
     contactEmail: m.contactEmail ?? null,
     contactSource: m.contactSource ?? null,
+    contactName: m.contactName ?? null,
   }));
 }
 
@@ -195,7 +199,7 @@ export async function listRuns(limit = 200): Promise<RunListItem[]> {
       threadId: first.threadId,
       createdAt: latest.createdAt.toISOString(),
       author: first.author,
-      candidateName: latest.candidateName || first.candidateName || "Onbekende kandidaat",
+      candidateName: latest.candidateName || first.candidateName || fallbackLabel(latest.profile ?? first.profile),
       summary: profileSummary(latest.profile ?? first.profile),
       hits: countMap.get(withMatches.id) ?? 0,
       status: latest.status,

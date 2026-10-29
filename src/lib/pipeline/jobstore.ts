@@ -5,7 +5,7 @@ import { inArray, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Job } from "@/lib/db/schema";
 import type { NormalizedJob, Profile } from "./types";
-import { regionCenter, withinProfileRadius } from "@/lib/geo";
+import { withinProfileRadius } from "@/lib/geo";
 import { isIntermediaryCompany } from "@/lib/blocklist";
 
 export function normalizeUrl(url: string): string {
@@ -89,6 +89,12 @@ export function dedupeJobs<T extends { url: string; title: string; companyName?:
 export type PrefilterReasons = { regio: number; tussenpersoon: number; uitsluiting: number };
 
 /** Zoals prefilterJobs, maar telt per reden hoeveel vacatures wegvallen (voor de diagnose). */
+/** Locatie bevestigd binnen de straal, bevestigd erbuiten, of nog niet gekend. */
+export function locationStatus(location: string | null | undefined, profile: Profile): "binnen" | "buiten" | "onbekend" {
+  const v = withinProfileRadius(location, profile);
+  return v === true ? "binnen" : v === false ? "buiten" : "onbekend";
+}
+
 export function prefilterWithReasons<
   T extends { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string },
 >(jobsIn: T[], profile: Profile): { kept: T[]; dropped: PrefilterReasons } {
@@ -116,13 +122,9 @@ export function prefilterReason(
 ): keyof PrefilterReasons | null {
   // Enkel bevestigde tussenpersonen (naam of domein); een onbekende werkgever blijft.
   if (isIntermediaryCompany(j.companyName, j.url)) return "tussenpersoon";
-  const verdict = withinProfileRadius(j.location, profile);
-  if (verdict === false) return "regio";
-  // Jobboards zonder bruikbare plaats (leeg of enkel 'België'/'Vlaanderen') vallen weg; een onbekende
-  // gemeente houden we, de afstandsschatting bij de scoring beslist dan.
-  const loc = (j.location ?? "").trim();
-  const vague = !loc || /^(belgi[eë]|belgium|vlaanderen|flanders|wallonie|walloni[eë])$/i.test(loc);
-  if (j.source !== "company_site" && regionCenter(profile) !== null && verdict === null && vague) return "regio";
+  // Enkel een bevestigde plaats buiten de straal valt weg. Een lege, vage ("België") of onbekende
+  // locatie is 'afstand nog niet gekend': die blijft, en krijgt later het label 'locatie te verifiëren'.
+  if (withinProfileRadius(j.location, profile) === false) return "regio";
   const exclusions = profile.exclusions.map((e) => e.toLowerCase()).filter((e) => e.length >= 3);
   const hay = `${j.title} ${j.descriptionText ?? ""}`.toLowerCase();
   // Enkel uitsluiten als de uitsluiting letterlijk in de titel staat.

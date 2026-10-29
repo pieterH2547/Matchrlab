@@ -10,7 +10,7 @@ import type { Run, Company, Job } from "@/lib/db/schema";
 import { CostMeter } from "@/lib/llm";
 import { LIMITS } from "@/lib/config";
 import { buildProfile, isVagueRegion } from "./profile";
-import { searchJobboards } from "./jobboards";
+import { searchJobboards, searchTitles, searchPlaces, searchTargetedWeb, searchJooble, searchAdzuna } from "./jobboards";
 import { discoverCompanies, type DiscoveredCompany } from "./discover";
 import { verifyMany } from "./verify";
 import { buildEmployers } from "./employers";
@@ -272,7 +272,11 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${shortlistRaw.length} controleren of ze nog open zijn` });
         emit({ type: "steps", steps: state.steps });
         const toVerify = shortlistRaw.slice(0, LIMITS.maxVerifyPerRun);
-        const verdicts = await verifyMany(toVerify);
+        // Al gecontroleerd in een eerdere stap van deze run: niet opnieuw ophalen.
+        const vCache = state.verifyCache ?? {};
+        const verdicts = await verifyMany(toVerify.filter((j) => !vCache[String(j.id)]), 8, state.stats?.startedAt ?? run.createdAt.getTime());
+        for (const j of toVerify) if (vCache[String(j.id)] && !verdicts.has(j.id)) verdicts.set(j.id, vCache[String(j.id)]);
+        state.verifyCache = Object.fromEntries(Array.from(verdicts.entries()).map(([id, v]) => [String(id), v]));
         const shortlist = toVerify.filter((j) => verdicts.get(j.id)?.status !== "gesloten");
         const closed = toVerify.length - shortlist.length;
         funnel.checked = toVerify.length;
@@ -283,7 +287,9 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${closed} gesloten · ${shortlist.length} naar eindscoring` });
         emit({ type: "steps", steps: state.steps });
         const scoreInfo = { requested: 0, scored: 0, missing: 0, batches: 0, failedBatches: 0 };
-        const result = await scoreJobs(profile, shortlist, names, meter, scoreInfo);
+        const scoreCache = new Map(Object.entries(state.scoreCache ?? {}).map(([k, v]) => [Number(k), v]));
+        const result = await scoreJobs(profile, shortlist, names, meter, scoreInfo, undefined, scoreCache);
+        state.scoreCache = Object.fromEntries((result.raw ?? []).map((r) => [String(r.id), r]));
         funnel.scoring = scoreInfo;
         const threshold = await minScore100();
         // Harde zeef: tijdelijk/interim, bevestigde tussenpersoon, buiten straal, harde eis, onder de drempel.
@@ -291,6 +297,26 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const scoredCount = result.scored.length;
         const { kept: passing, reasons } = applyHardFilters(result.scored, names, profile, threshold);
         funnel.reasons = reasons;
+
+        // Weinig relevante resultaten: één beperkte tweede zoekronde met andere titels en gemeenten.
+        // De straal, regio en harde voorwaarden blijven dezelfde; vacatures die al gescoord zijn, worden niet opnieuw beoordeeld.
+        if (passing.length < LIMITS.secondRoundBelow && !state.secondRoundDone) {
+          state.secondRoundDone = true;
+          state = setStep(state, "score", { status: "running", detail: `${passing.length} passend: tweede zoekronde met verwante titels en andere gemeenten` });
+          emit({ type: "steps", steps: state.steps });
+          const extra = await secondRound(profile).catch(() => ({ jobs: [] as Job[], queries: 0 }));
+          const known = new Set(state.jobIds ?? []);
+          const fresh = extra.jobs.filter((j) => !known.has(j.id));
+          funnel.secondRound = { queries: extra.queries, newJobs: fresh.length };
+          state.stats = { ...(state.stats ?? {}), funnel };
+          if (fresh.length) {
+            state.jobIds = [...(state.jobIds ?? []), ...fresh.map((j) => j.id)];
+            await saveRun(runId, { status: "score", state });
+            await addCost(runId, meter);
+            emit({ type: "status", status: "score", state });
+            return "score";
+          }
+        }
         funnel.aboveThreshold = result.scored.filter((s) => s.score >= threshold).length;
         // Max 2 vacatures per werkgever, max 10 in totaal; bij gelijke score wint een geverifieerde, dan een bevestigde.
         const perEmployer = new Map<string, number>();
@@ -351,10 +377,10 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
             .values(
               result.scored.map((s, i) => {
                 const v = verdicts.get(s.job.id);
-                const flags = toVerifyFlags(s, names.get(s.job.id) ?? "");
+                const flags = toVerifyFlags(s, names.get(s.job.id) ?? "", profile);
                 const verification = `${v ? `${v.status}: ${v.reason}` : "niet geverifieerd"}${flags.length ? ` | ${flags.join(", ")}` : ""}`;
                 const c = contacts.get(s.job.id) ?? null;
-                return { runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1, verification, contactEmail: c?.email ?? null, contactSource: c?.source ?? null };
+                return { runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1, verification, contactEmail: c?.email ?? null, contactSource: c?.source ?? null, contactName: c?.name ?? null };
               }),
             );
         }
@@ -451,10 +477,10 @@ async function contactsForJobs(jobsIn: Job[]): Promise<Map<number, Contact>> {
       const c = j.companyId !== null ? byId.get(j.companyId) : undefined;
       const domain = employerDomainFor(j.url, c?.domain ?? null);
       const found = await withTimeout(findContact({ jobText: j.descriptionText, jobUrl: j.url, employerDomain: domain, careersUrl: c?.jobsUrl }), 15_000).catch(() => null);
-      const contact = found ?? (c?.contactEmail ? { email: c.contactEmail, source: c.contactSource ?? "website werkgever" } : null);
+      const contact = found ?? (c?.contactEmail ? { email: c.contactEmail, source: c.contactSource ?? "website werkgever", name: c.contactName } : null);
       if (contact) out.set(j.id, contact);
       if (found && c && !c.contactEmail) {
-        await db().update(schema.companies).set({ contactEmail: found.email, contactSource: found.source }).where(eq(schema.companies.id, c.id)).catch(() => undefined);
+        await db().update(schema.companies).set({ contactEmail: found.email, contactSource: found.source, contactName: found.name ?? null }).where(eq(schema.companies.id, c.id)).catch(() => undefined);
       }
     }),
   );
@@ -468,12 +494,32 @@ async function withContacts(list: EmployerView[]): Promise<EmployerView[]> {
   return Promise.all(
     list.map(async (e) => {
       const c = byDomain.get(e.domain);
-      if (c?.contactEmail) return { ...e, contactEmail: c.contactEmail, contactSource: c.contactSource };
+      if (c?.contactEmail) return { ...e, contactEmail: c.contactEmail, contactSource: c.contactSource, contactName: c.contactName };
       const found = await withTimeout(findContact({ employerDomain: e.domain, careersUrl: e.careersUrl }), 15_000).catch(() => null);
-      if (found && c) await db().update(schema.companies).set({ contactEmail: found.email, contactSource: found.source }).where(eq(schema.companies.id, c.id)).catch(() => undefined);
-      return { ...e, contactEmail: found?.email ?? null, contactSource: found?.source ?? null };
+      if (found && c) await db().update(schema.companies).set({ contactEmail: found.email, contactSource: found.source, contactName: found.name ?? null }).where(eq(schema.companies.id, c.id)).catch(() => undefined);
+      return { ...e, contactEmail: found?.email ?? null, contactSource: found?.source ?? null, contactName: found?.name ?? null };
     }),
   );
+}
+
+/**
+ * Tweede zoekronde: titels die in ronde 1 niet aan bod kwamen (verwante titels, EN/FR-varianten) en
+ * gemeenten verder in de straal. Enkel gratis of goedkope bronnen (Jooble, Adzuna, gerichte Google-vragen).
+ */
+async function secondRound(profile: Profile): Promise<{ jobs: Job[]; queries: number }> {
+  const used = new Set(searchTitles(profile, LIMITS.titlesPerSource).map((t) => t.toLowerCase()));
+  const titles = [...(profile.related_titles ?? []), ...(profile.title_variants ?? [])].filter((t) => !used.has(t.toLowerCase())).slice(0, 3);
+  const places = searchPlaces(profile, 8).slice(3, 6);
+  const alt: Profile = { ...profile, job_titles: titles.length ? titles : profile.job_titles, related_titles: [] };
+  const [web, jooble, adzuna] = await Promise.all([
+    searchTargetedWeb(profile, { budget: 5, titles: titles.length ? titles : undefined, places: places.length ? [profile.region, ...places] : undefined }).catch(() => null),
+    titles.length ? searchJooble(alt).catch(() => null) : null,
+    titles.length ? searchAdzuna(alt).catch(() => null) : null,
+  ]);
+  const all = [...(web?.jobs ?? []), ...(jooble?.jobs ?? []), ...(adzuna?.jobs ?? [])];
+  const pf = prefilterWithReasons(dedupeJobs(all), profile);
+  const stored = await upsertJobs(pf.kept);
+  return { jobs: stored, queries: (web?.queries ?? 0) + (jooble?.queries ?? 0) + (adzuna?.queries ?? 0) };
 }
 
 /** Kanaal van een vacature, voor de meting per ontdekkingskanaal. */

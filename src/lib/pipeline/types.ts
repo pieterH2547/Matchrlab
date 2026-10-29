@@ -156,6 +156,11 @@ export type RunState = {
   companyDomains?: string[];
   /** Spoor B liep al mee tijdens de vacaturestap (sneller); de ontdekstap gebruikt dit resultaat. */
   prefetchedDiscovery?: import("./discover").DiscoveryResult;
+  /** Scores en verificaties van deze run: bij een tweede ronde of hervatting niet opnieuw doen. */
+  scoreCache?: Record<string, import("./score").RawScore>;
+  verifyCache?: Record<string, { status: "actief" | "gesloten" | "niet geverifieerd"; reason: string }>;
+  /** Automatische tweede zoekronde al gedaan (max één keer). */
+  secondRoundDone?: boolean;
   /** Run gestopt na het profiel omdat er geen woonplaats was. */
   needsRegion?: boolean;
   kpi?: { verifiedJobs: number; proactive: number; relationsChecked: number; draftsSaved: number };
@@ -199,6 +204,8 @@ export type Funnel = {
   aboveThreshold?: number;
   shown?: number;
   toVerify?: { contract: number; werkgever: number };
+  /** Automatische tweede zoekronde: aantal zoekopdrachten en nieuwe vacatures. */
+  secondRound?: { queries: number; newJobs: number };
   /** Per ontdekkingskanaal: unieke vacatures, unieke werkgevers, passende vacatures. */
   channels?: Record<string, { jobs: number; employers: number; matches: number }>;
   /** Lokale ontdekking: gemeenten bevraagd, Maps-vragen, uit cache, eerder bekende bedrijven hergebruikt. */
@@ -221,6 +228,7 @@ export type EmployerView = {
   distanceKm: number | null;
   contactEmail?: string | null;
   contactSource?: string | null;
+  contactName?: string | null;
 };
 
 /** Werkgevers beoordelen: enkel relevantie en activiteit, geen feiten verzinnen. */
@@ -309,6 +317,7 @@ export type MatchView = {
   verification: string;
   contactEmail: string | null;
   contactSource: string | null;
+  contactName: string | null;
 };
 
 export type RunView = {

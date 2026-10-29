@@ -11,7 +11,7 @@ import { webSearch } from "@/lib/search";
 import { getSetting } from "@/lib/settings";
 import { LIMITS } from "@/lib/config";
 import { countCall, noteFailure } from "@/lib/usage";
-import { findPlaceName } from "@/lib/geo";
+import { findPlaceName, municipalitiesWithin, regionCenter } from "@/lib/geo";
 import type { NormalizedJob, Profile } from "./types";
 import { searchOpenAIJobs, type AiSearchResult } from "./aisearch";
 
@@ -84,26 +84,57 @@ export async function searchAdzuna(profile: Profile): Promise<SourceOut> {
 }
 
 /** Doelgerichte zoekopdrachten voor spoor C. Max 6, elk met titel + regio. */
-export function targetedQueries(profile: Profile): { q: string; kind: "vdab" | "indeed" | "linkedin" | "ats" | "site" }[] {
-  const [t1, t2] = searchTitles(profile, 2);
-  const r = profile.region;
-  if (!t1) return [];
+type QueryKind = "vdab" | "indeed" | "linkedin" | "ats" | "site";
+
+/** Gemeenten om gericht te zoeken: de regio, dan de grootste kernen dichtbij (uit de bpost-lijst). */
+export function searchPlaces(profile: Profile, max: number): string[] {
+  const center = regionCenter(profile);
+  const grid = center ? municipalitiesWithin(center, Math.min(profile.radius_km, 25), 30).map((m) => m.name) : [];
+  const all = [profile.region, ...(profile.nearby_municipalities ?? []), ...grid].map((x) => x.trim()).filter(Boolean);
+  return Array.from(new Map(all.map((x) => [x.toLowerCase(), x])).values()).slice(0, max);
+}
+
+/**
+ * Gerichte zoekopdrachten (spoor C), binnen een budget, verdeeld over bronnen (VDAB, Indeed, LinkedIn, ATS,
+ * eigen sites), primaire en verwante titels en meerdere gemeenten. De belangrijkste combinaties eerst, zodat
+ * een kleiner budget de beste vragen houdt. `opts.titles`/`opts.places` voor een tweede ronde met andere input.
+ */
+export function targetedQueries(
+  profile: Profile,
+  opts: { budget?: number; titles?: string[]; places?: string[] } = {},
+): { q: string; kind: QueryKind }[] {
+  const budget = opts.budget ?? LIMITS.targetedQueriesPerRun;
+  const titles = opts.titles ?? searchTitles(profile, 3);
+  const places = opts.places ?? searchPlaces(profile, 3);
+  const [t1, t2, t3] = titles;
+  const [p1, p2, p3] = places;
+  if (!t1 || !p1) return [];
   // Synoniemen in NL/EN/FR in één OR-groep: werkgevers noemen dezelfde job anders.
-  const variants = [t1, ...(profile.title_variants ?? [])].slice(0, 3);
-  const titleGroup = variants.length > 1 ? `(${variants.map((v) => `"${v}"`).join(" OR ")})` : `"${t1}"`;
+  const group = (t: string, withVariants: boolean) => {
+    const v = withVariants ? [t, ...(profile.title_variants ?? [])].slice(0, 3) : [t];
+    return v.length > 1 ? `(${v.map((x) => `"${x}"`).join(" OR ")})` : `"${t}"`;
+  };
+  const g1 = group(t1, !opts.titles);
   const skill = (profile.skill_keywords ?? [])[0];
   const ats = "(site:jobs.smartrecruiters.com OR site:recruitee.com OR site:jobs.lever.co OR site:boards.greenhouse.io OR site:jobtoolz.com OR site:teamtailor.com OR site:jobs.personio.com OR site:apply.workable.com)";
-  const out: { q: string; kind: "vdab" | "indeed" | "linkedin" | "ats" | "site" }[] = [
-    { q: `site:vdab.be/vindeenjob/vacatures ${t1} ${r}`, kind: "vdab" },
-    { q: `site:be.indeed.com ${titleGroup} ${r}`, kind: "indeed" },
-    { q: `site:linkedin.com/jobs ${titleGroup} ${r}`, kind: "linkedin" },
-    { q: `${ats} ${titleGroup} ${r}`, kind: "ats" },
-    // KMO-sites: "werken bij"/"vacatures"-pagina's van werkgevers zelf, zonder jobboards en bureaus.
-    { q: `${titleGroup} ("werken bij" OR vacatures OR "join our team") ${r} -site:indeed.com -site:linkedin.com -site:vdab.be -interim -uitzend`, kind: "site" },
+  const own = (g: string, p: string) => `${g} ("werken bij" OR vacatures OR "join our team") ${p} -site:indeed.com -site:linkedin.com -site:vdab.be -interim -uitzend`;
+  const plan: ({ q: string; kind: QueryKind } | null)[] = [
+    { q: `site:vdab.be/vindeenjob/vacatures ${t1} ${p1}`, kind: "vdab" },
+    { q: `site:be.indeed.com ${g1} ${p1}`, kind: "indeed" },
+    { q: `site:linkedin.com/jobs ${g1} ${p1}`, kind: "linkedin" },
+    { q: `${ats} ${g1} ${p1}`, kind: "ats" },
+    { q: own(g1, p1), kind: "site" },
+    t2 ? { q: `site:vdab.be/vindeenjob/vacatures ${t2} ${p1}`, kind: "vdab" } : null,
+    p2 ? { q: `site:vdab.be/vindeenjob/vacatures ${t1} ${p2}`, kind: "vdab" } : null,
+    t2 ? { q: `site:be.indeed.com "${t2}" ${p1}`, kind: "indeed" } : null,
+    p2 ? { q: own(g1, p2), kind: "site" } : null,
+    skill ? { q: `vacature "${skill}" ${p1} -interim -uitzend`, kind: "site" } : null,
+    t3 ? { q: `site:vdab.be/vindeenjob/vacatures ${t3} ${p1}`, kind: "vdab" } : null,
+    p3 ? { q: `site:be.indeed.com ${g1} ${p3}`, kind: "indeed" } : null,
+    t2 ? { q: `site:linkedin.com/jobs "${t2}" ${p1}`, kind: "linkedin" } : null,
   ];
-  if (t2) out.push({ q: `site:vdab.be/vindeenjob/vacatures ${t2} ${r}`, kind: "vdab" });
-  if (skill) out.push({ q: `vacature "${skill}" ${r} -interim -uitzend`, kind: "site" });
-  return out.slice(0, 7);
+  const out = plan.filter((x): x is { q: string; kind: QueryKind } => Boolean(x));
+  return Array.from(new Map(out.map((x) => [x.q, x])).values()).slice(0, budget);
 }
 
 /** Lijkt deze link op één concrete vacature (geen zoek- of lijstpagina)? */
@@ -137,8 +168,8 @@ export function parseJobResult(title: string, snippet: string, kind: string): { 
 }
 
 /** Spoor C: gerichte Google-zoekopdrachten via de zoekketen (Serper eerst). */
-export async function searchTargetedWeb(profile: Profile): Promise<SourceOut> {
-  const qs = targetedQueries(profile);
+export async function searchTargetedWeb(profile: Profile, opts: { budget?: number; titles?: string[]; places?: string[] } = {}): Promise<SourceOut> {
+  const qs = targetedQueries(profile, opts);
   const results = await Promise.all(qs.map((x) => webSearch(x.q, { count: 10, freshness: x.kind === "site" ? undefined : "pm" }).then((r) => ({ ...x, r }))));
   const out: NormalizedJob[] = [];
   let raw = 0;

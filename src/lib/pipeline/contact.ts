@@ -6,7 +6,25 @@
 import { fetchPage } from "@/lib/fetch";
 import { isBlockedDomain, registrableDomain } from "@/lib/blocklist";
 
-export type Contact = { email: string; source: string };
+export type Contact = { email: string; source: string; name?: string | null };
+
+const NAME = "([A-ZÀ-Ý][a-zà-ÿ'’-]+(?:\\s+(?:van|de|der|den|du|le|la|vd|ten|ter)){0,3}(?:\\s+[A-ZÀ-Ý][a-zà-ÿ'’-]+){1,2})";
+const CONTACT_CUE = new RegExp(
+  `(?:[Cc]ontactpersoon|[Cc]ontact\\s*persoon|[Nn]eem contact op met|[Vv]ragen\\??[^.]{0,40}?(?:bij|aan|met)|[Ss]tuur (?:je|jouw) (?:cv|kandidatuur)[^.]{0,30}?naar|[Ss]olliciteren bij|[Pp]ersonne de contact|[Cc]ontactez|[Cc]ontact person|[Cc]ontact:)\\s*:?\\s*(?:mevrouw|meneer|mevr\\.|dhr\\.|mr\\.|mrs\\.|ms\\.)?\\s*${NAME}`,
+);
+
+/** Naam van de contactpersoon zoals die in de tekst staat, of uit het e-mailadres (voornaam.naam@). Nooit gegokt. */
+export function extractContactName(text: string, email: string | null): string | null {
+  const m = text.match(CONTACT_CUE);
+  if (m?.[1] && !/^(Wij|Ons|Onze|Het|De|Een|Je|Jij|Uw|Hr|Info|Jobs)\b/.test(m[1])) return m[1].trim();
+  // Uit het adres enkel bij voornaam.naam@ (twee delen, letters), nooit bij jobs@, hr@, info@.
+  const local = email?.split("@")[0] ?? "";
+  const parts = local.split(/[._-]/).filter(Boolean);
+  if (parts.length === 2 && parts.every((p) => /^[a-zà-ÿ]{2,}$/i.test(p)) && !HR_WORDS.test(local) && !GENERIC.test(local)) {
+    return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(" ");
+  }
+  return null;
+}
 
 const EMAIL = /[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}/gi;
 const JUNK = /(example\.|sentry|wixpress|domain\.|email\.com$|yourname|naam@|name@|\.(png|jpe?g|gif|svg|webp)$|noreply|no-reply|donotreply|privacy|gdpr|dpo@|abuse@|webmaster|postmaster|newsletter|nieuwsbrief|unsubscribe)/i;
@@ -63,7 +81,7 @@ export async function findContact(
   const d = opts.employerDomain;
   const tryText = (text: string, source: string): Contact | null => {
     const e = pickEmail(extractEmails(text), d);
-    return e ? { email: e, source } : null;
+    return e ? { email: e, source, name: extractContactName(text, e) } : null;
   };
   let best: Contact | null = null;
   const better = (c: Contact | null) => {

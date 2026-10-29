@@ -47,7 +47,7 @@ describe("dedupeJobs", () => {
 });
 
 describe("prefilterJobs", () => {
-  it("regio voor jobboards: buiten de straal of zonder bruikbare plaats valt weg; onbekende gemeente blijft voor de AI", () => {
+  it("regio: enkel bevestigd buiten de straal valt weg; onbekende of vage plaats blijft (afstand nog niet gekend)", () => {
     const jobsIn = [
       { title: "Procesoperator", location: "Willebroek", source: "vdab" },
       { title: "Procesoperator", location: "Hasselt", source: "vdab" },
@@ -55,7 +55,7 @@ describe("prefilterJobs", () => {
       { title: "Procesoperator", location: "Ergens-Onbekend", source: "vdab" },
       { title: "Procesoperator", location: "België", source: "vdab" },
     ];
-    expect(prefilterJobs(jobsIn, profile).map((j) => j.location)).toEqual(["Willebroek", "Ergens-Onbekend"]);
+    expect(prefilterJobs(jobsIn, profile).map((j) => j.location)).toEqual(["Willebroek", "Ergens-Onbekend", "België"]);
   });
 
   it("bedrijfssites: onbekende plaats blijft, buiten de straal valt weg, tussenpersonen vallen weg", () => {

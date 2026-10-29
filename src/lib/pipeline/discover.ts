@@ -139,7 +139,17 @@ export async function discoverCompanies(profile: Profile, meter: CostMeter, opts
 
   // 1. Google Maps: lokale werkgevers met website en exacte vestiging.
   const mq = hasMaps ? mapsQueries(profile) : [];
-  const placeHits = await Promise.all(mq.map((q) => placesSearch(q).catch(() => null)));
+  // Max 4 Maps-vragen tegelijk: een stoot van 20 (x meerdere runs) liep tegen de rate limit van Serper aan.
+  const placeHits: (Awaited<ReturnType<typeof placesSearch>> | null)[] = new Array(mq.length).fill(null);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(4, mq.length) }, async () => {
+      while (next < mq.length) {
+        const i = next++;
+        placeHits[i] = await placesSearch(mq[i]).catch(() => null);
+      }
+    }),
+  );
   braveQueries += placeHits.filter((h) => h !== null).length;
   for (const hits of placeHits) {
     for (const p of hits ?? []) {

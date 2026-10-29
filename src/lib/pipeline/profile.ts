@@ -11,6 +11,8 @@ en maakt daar een zoekprofiel van voor een vacaturezoektocht in België.
 
 Regels:
 - Functietitels: 3 tot 5 Nederlandstalige titels en synoniemen die werkgevers echt gebruiken (bv. "procesoperator", "productieoperator", "operator chemie").
+- candidate_name: de volledige naam van de kandidaat, meestal bovenaan het cv of in de e-mail-/LinkedIn-regel
+  (bv. jan.peeters@... = Jan Peeters). Enkel leeg laten als er echt nergens een naam staat.
 - Regio: de woonplaats (gemeente) uit het cv; de vrije tekst van de collega overschrijft het cv altijd.
   Staat er nergens een gemeente, geef dan een LEGE string. Nooit "Vlaanderen" of "België" invullen.
 - Straal: standaard 30 km, pas aan als het cv of de opdracht iets anders zegt. Leid geen woonplaats af zonder bewijs in het cv.

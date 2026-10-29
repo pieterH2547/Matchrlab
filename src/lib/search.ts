@@ -55,7 +55,10 @@ export function searchAvailable(): boolean {
 
 /** Providers die deze run al faalden (limiet, fout), zodat we ze niet blijven proberen. Per serverinstantie. */
 const cooling = new Map<SearchProvider, number>();
-const COOL_MS = 10 * 60 * 1000;
+const failures = new Map<SearchProvider, number>();
+/** Pas na 3 fouten op rij afkoelen, en dan 2 minuten: één tijdelijke weigering mocht Serper vroeger 10 minuten uitschakelen. */
+const COOL_AFTER = 3;
+const COOL_MS = 2 * 60 * 1000;
 
 /**
  * Eén zoekopdracht. Geeft null als geen enkele provider kon antwoorden; de pijplijn
@@ -74,11 +77,17 @@ export async function webSearch(query: string, opts: SearchOptions = {}): Promis
       r = null;
     }
     if (r !== null) {
+      failures.delete(p);
       // Brave telt zichzelf al (maandlimiet); de rest tellen we hier.
       if (p !== "brave") await recordSearches(1).catch(() => undefined);
       return r.filter((x) => /^https?:\/\//.test(x.url)).slice(0, opts.count ?? 20);
     }
-    cooling.set(p, Date.now() + COOL_MS);
+    const n = (failures.get(p) ?? 0) + 1;
+    failures.set(p, n);
+    if (n >= COOL_AFTER) {
+      cooling.set(p, Date.now() + COOL_MS);
+      failures.delete(p);
+    }
     noteFailure(`Zoekmachine ${p} faalde; de volgende nam over.`);
     console.warn(`[search] ${p} faalde; volgende provider`);
   }
@@ -196,7 +205,9 @@ async function writeSearchCache(key: string, kind: string, results: unknown): Pr
 
 async function placesSearchLive(key: string, query: string): Promise<PlaceResult[] | null> {
   countCall("serper_maps");
-  const data = (await postJson("https://google.serper.dev/places", { q: query, gl: "be", hl: "nl" }, { "x-api-key": key })) as {
+  const call = () => postJson("https://google.serper.dev/places", { q: query, gl: "be", hl: "nl" }, { "x-api-key": key });
+  // Eén nieuwe poging na een korte pauze: een tijdelijke weigering (rate limit) mag de ontdekking niet stilleggen.
+  const data = ((await call()) ?? (await new Promise((r) => setTimeout(r, 1500)).then(call))) as {
     places?: { title?: string; website?: string; address?: string; category?: string; type?: string; latitude?: number; longitude?: number }[];
   } | null;
   if (!data) {

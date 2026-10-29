@@ -70,7 +70,7 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
 
       {run.matches.length > 0 && (
-        <Section title={`${run.matches.length} passende vacatures`}>
+        <Section title={`${run.matches.length} passende vacatures`} action={<ExportBar run={run} />}>
           <div className="divide-y divide-line">
             {run.matches.map((m) => (
               <ResultCard key={m.jobId} m={m} />
@@ -115,10 +115,13 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section>
-      <h3 className="text-[13px] font-semibold text-navy mb-1 pb-2 border-b border-line">{title}</h3>
+      <div className="flex items-center justify-between gap-3 mb-1 pb-2 border-b border-line">
+        <h3 className="text-[13px] font-semibold text-navy">{title}</h3>
+        {action}
+      </div>
       {children}
     </section>
   );
@@ -152,18 +155,22 @@ function EmployerCard({ e }: { e: EmployerView }) {
           </a>
         )}
       </div>
-      <ContactLine email={e.contactEmail ?? null} source={e.contactSource ?? null} subject={`Kandidaat voor ${e.name}`} />
+      <ContactLine email={e.contactEmail ?? null} name={e.contactName ?? null} source={e.contactSource ?? null} subject={`Kandidaat voor ${e.name}`} />
     </article>
   );
 }
 
 /** Contactadres om de kandidaat voor te stellen: klikbaar (mail) en kopieerbaar, met de vindplaats. */
-function ContactLine({ email, source, subject }: { email: string | null; source: string | null; subject: string }) {
+/** Contactpersoon en mailadres om de kandidaat voor te stellen: klikbaar en kopieerbaar. */
+/** Contactpersoon en mailadres om de kandidaat voor te stellen: klikbaar en kopieerbaar. */
+function ContactLine({ email, name, source, subject }: { email: string | null; name?: string | null; source: string | null; subject: string }) {
   const [copied, setCopied] = useState(false);
-  if (!email) return <div className="mt-2 text-xs text-ink-faint">Geen mailadres op de vacature of de website.</div>;
+  if (!email) return <div className="mt-1.5 text-[13px] text-ink-faint">Contact: geen mailadres op de vacature of de website</div>;
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-      <a href={`mailto:${email}?subject=${encodeURIComponent(subject)}`} className="font-medium text-navy underline underline-offset-4 decoration-gold decoration-2 break-all">
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[13.5px]" title={source ? `gevonden op: ${source}` : undefined}>
+      <span className="text-ink-soft">Contact:</span>
+      {name && <span className="text-ink">{name} ·</span>}
+      <a href={`mailto:${email}?subject=${encodeURIComponent(subject)}`} className="text-navy underline underline-offset-4 decoration-gold decoration-2 break-all">
         {email}
       </a>
       <button
@@ -174,11 +181,10 @@ function ContactLine({ email, source, subject }: { email: string | null; source:
             setTimeout(() => setCopied(false), 1500);
           });
         }}
-        className="text-xs text-ink-soft hover:text-navy"
+        className="text-[12px] text-ink-faint hover:text-navy"
       >
-        {copied ? "Gekopieerd" : "Kopieer"}
+        {copied ? "gekopieerd" : "kopieer"}
       </button>
-      {source && <span className="text-xs text-ink-faint">{source}</span>}
     </div>
   );
 }
@@ -207,6 +213,63 @@ const FUNNEL_SOURCE: Record<string, string> = {
   google_zoek: "Google-zoekopdrachten",
   openai_web: "OpenAI Web Search",
 };
+
+/** Alle matches (en werkgevers) in één klik: kopiëren als tekst of downloaden als CSV voor Excel. */
+function ExportBar({ run }: { run: RunView }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-3 text-[12.5px]">
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard?.writeText(matchesAsText(run)).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+          });
+        }}
+        className="text-ink-soft hover:text-navy"
+      >
+        {copied ? "✓ Gekopieerd" : "Kopieer alles"}
+      </button>
+      <button type="button" onClick={() => downloadCsv(run)} className="text-ink-soft hover:text-navy">
+        Exporteer (Excel)
+      </button>
+    </div>
+  );
+}
+
+export function matchesAsText(run: Pick<RunView, "candidateName" | "profile" | "matches" | "state">): string {
+  const head = `${run.candidateName ?? "Kandidaat"}${run.profile ? ` — ${run.profile.job_titles[0]}, ${run.profile.region} (${run.profile.radius_km} km)` : ""}`;
+  const jobs = run.matches.map((m, i) =>
+    [
+      `${i + 1}. ${m.title} — ${m.company || "werkgever onbekend"}${m.location ? `, ${m.location}` : ""} (${Math.round(m.score / 10)}/10)`,
+      `   Match: ${m.argument || m.reason}`,
+      m.risk ? `   Risico: ${m.risk}` : null,
+      `   Contact: ${m.contactEmail ? `${m.contactName ? `${m.contactName}, ` : ""}${m.contactEmail}` : "niet gevonden"}`,
+      `   Vacature: ${m.url}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+  const emps = (run.state.employers ?? []).map((e) => `- ${e.name}${e.municipality ? `, ${e.municipality}` : ""} · ${e.website}${e.contactEmail ? ` · ${e.contactName ? `${e.contactName}, ` : ""}${e.contactEmail}` : ""}`);
+  return [head, "", "Vacatures", ...jobs, ...(emps.length ? ["", "Interessante werkgevers (geen bewezen vacature)", ...emps] : [])].join("\n");
+}
+
+function downloadCsv(run: RunView) {
+  const cell = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    ["Score", "Functie", "Werkgever", "Locatie", "Waarom match", "Risico", "Contactpersoon", "E-mail", "Vacaturelink", "Verificatie"],
+    ...run.matches.map((m) => [Math.round(m.score / 10), m.title, m.company, m.location, m.argument || m.reason, m.risk, m.contactName, m.contactEmail, m.url, m.verification]),
+  ];
+  // Puntkomma en BOM: opent correct in een Belgische Excel.
+  const csv = "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `matchr-${(run.candidateName ?? "kandidaat").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 
 const CHANNEL_LABEL: Record<string, string> = {
   lokaal: "Lokale KMO-ontdekking (Google Maps)",
@@ -544,83 +607,52 @@ function Steps({ steps }: { steps: StepState[] }) {
   );
 }
 
-function sourceLabel(source: MatchView["source"]): { text: string; cls: string } {
-  switch (source) {
-    case "company_site":
-      return { text: "Rechtstreeks van jobsite", cls: "bg-accent-soft text-accent" };
-    case "vdab":
-      return { text: "VDAB", cls: "bg-paper-soft text-ink-soft" };
-    case "adzuna":
-      return { text: "Adzuna", cls: "bg-paper-soft text-ink-soft" };
-    case "jooble":
-      return { text: "Jooble", cls: "bg-paper-soft text-ink-soft" };
-    case "google_jobs":
-      return { text: "Google Jobs", cls: "bg-paper-soft text-ink-soft" };
-    case "openai_web":
-      return { text: "OpenAI Web Search", cls: "bg-paper-soft text-ink-soft" };
-    case "web":
-      return { text: "Google-zoekopdracht", cls: "bg-paper-soft text-ink-soft" };
-    default:
-      return { text: "Web", cls: "bg-paper-soft text-ink-soft" };
-  }
-}
 
-function age(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 3600 * 1000));
-  if (days <= 0) return "vandaag gezien";
-  if (days === 1) return "gisteren gezien";
-  return `${days} dagen geleden gezien`;
-}
 
-function VerificationBadge({ v }: { v: string }) {
-  const [main, flagPart] = (v || "niet geverifieerd").split(" | ");
-  const [status, ...rest] = main.split(":");
-  const reason = rest.join(":").trim();
-  const active = status.trim() === "actief";
-  const flags = (flagPart ?? "").split(",").map((f) => f.trim()).filter(Boolean);
-  return (
-    <>
-      <span title={reason || undefined} className="inline-flex items-center gap-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-ok" : "bg-gold"}`} aria-hidden />
-        {active ? "Gecontroleerd: open" : "Niet geverifieerd"}
-      </span>
-      {flags.map((f) => (
-        <span key={f} className="text-warn">
-          {f.charAt(0).toUpperCase() + f.slice(1)}
-        </span>
-      ))}
-    </>
-  );
-}
 
 function ResultCard({ m }: { m: MatchView }) {
-  const src = sourceLabel(m.source);
   const score10 = Math.round(m.score / 10);
   return (
-    <article className="py-5 first:pt-1">
-      <div className="flex items-start gap-4">
+    <article className="py-4 first:pt-2">
+      <div className="flex items-baseline gap-4">
         <div className="min-w-0 flex-1">
-          <a href={m.url} target="_blank" rel="noopener noreferrer" className="group text-[16px] font-semibold leading-snug text-navy">
+          <a href={m.url} target="_blank" rel="noopener noreferrer" className="group text-[15.5px] font-semibold leading-snug text-navy">
             <span className="group-hover:underline underline-offset-4 decoration-1">{m.title}</span>
             <span className="ml-1 text-ink-faint group-hover:text-navy" aria-hidden>
               ↗
             </span>
           </a>
-          <div className="mt-0.5 text-sm text-ink-soft">{[m.company, m.location].filter(Boolean).join(" · ")}</div>
+          <span className="text-[14px] text-ink-soft"> — {[m.company || "werkgever onbekend", m.location].filter(Boolean).join(", ")}</span>
         </div>
-        <div className="shrink-0 text-right leading-none tabular-nums">
-          <span className="text-2xl font-semibold text-navy">{score10}</span>
-          <span className="text-xs text-ink-faint">/10</span>
-        </div>
+        <span className="shrink-0 tabular-nums text-[15px] font-semibold text-navy">
+          {score10}
+          <span className="text-xs font-normal text-ink-faint">/10</span>
+        </span>
       </div>
-      <p className="mt-3 text-[14.5px] leading-relaxed text-ink">{m.argument || m.reason}</p>
-      {m.risk && <p className="mt-1 text-[14px] leading-relaxed text-ink-soft">Risico: {m.risk}</p>}
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
-        <span>{src.text}</span>
-        <VerificationBadge v={m.verification} />
-        <span>{age(m.firstSeenAt)}</span>
-      </div>
-      <ContactLine email={m.contactEmail} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} />
+      <p className="mt-1.5 text-[14px] leading-relaxed text-ink">{m.argument || m.reason}</p>
+      <ContactLine email={m.contactEmail} name={m.contactName} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} />
+      <MetaLine m={m} />
     </article>
   );
 }
+
+/** Eén stille regel: verificatie en wat nog na te gaan is. Risico en bron staan in de export. */
+function MetaLine({ m }: { m: MatchView }) {
+  const [main, flagPart] = (m.verification || "niet geverifieerd").split(" | ");
+  const active = main.startsWith("actief");
+  const flags = (flagPart ?? "").split(",").map((f) => f.trim()).filter(Boolean);
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 text-[12px] text-ink-faint">
+      <span className="inline-flex items-center gap-1.5" title={main.split(":").slice(1).join(":").trim() || undefined}>
+        <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-ok" : "bg-gold"}`} aria-hidden />
+        {active ? "open bevestigd" : "niet geverifieerd"}
+      </span>
+      {flags.map((f) => (
+        <span key={f} className="text-warn">
+          {f}
+        </span>
+      ))}
+    </div>
+  );
+}
+

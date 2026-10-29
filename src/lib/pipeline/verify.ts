@@ -52,13 +52,23 @@ export function judgePage(job: { url: string; title: string }, page: { status: n
   return { status: "niet geverifieerd", reason: "pagina bereikbaar, maar de vacature werd er niet in herkend" };
 }
 
-export async function verifyJob(job: JobLike): Promise<Verification> {
+/**
+ * Actief enkel als Matchr de vacature in DEZE run zelf op de jobpagina of ATS-feed van de werkgever zag.
+ * Eerder opgeslagen (uit een vorige run) is niet hetzelfde als nu bevestigd: dan controleren we de pagina.
+ */
+export function confirmedThisRun(job: JobLike, runStartedAt: number | null): Verification | null {
+  if (job.source !== "company_site" || runStartedAt === null) return null;
+  const seen = job.lastSeenAt ? new Date(job.lastSeenAt).getTime() : 0;
+  if (seen < runStartedAt) return null;
   const via = ((job.raw ?? {}) as { via?: string }).via;
-  if (job.source === "company_site") {
-    if (via === "ats-feed") return { status: "actief", reason: "staat op de publieke ATS-feed van de werkgever" };
-    const seen = job.lastSeenAt ? new Date(job.lastSeenAt).getTime() : 0;
-    if (Date.now() - seen < 48 * 3600 * 1000) return { status: "actief", reason: "vandaag op de jobpagina van de werkgever gezien" };
-  }
+  return via === "ats-feed"
+    ? { status: "actief", reason: "staat nu op de publieke ATS-feed van de werkgever" }
+    : { status: "actief", reason: "nu op de jobpagina van de werkgever gezien" };
+}
+
+export async function verifyJob(job: JobLike, runStartedAt: number | null = null): Promise<Verification> {
+  const now = confirmedThisRun(job, runStartedAt);
+  if (now) return now;
   let host = "";
   try {
     host = new URL(job.url).hostname;
@@ -72,13 +82,13 @@ export async function verifyJob(job: JobLike): Promise<Verification> {
 }
 
 /** Verifieer een lijst met begrensde gelijktijdigheid. */
-export async function verifyMany<T extends JobLike & { id: number }>(jobs: T[], concurrency = 8): Promise<Map<number, Verification>> {
+export async function verifyMany<T extends JobLike & { id: number }>(jobs: T[], concurrency = 8, runStartedAt: number | null = null): Promise<Map<number, Verification>> {
   const out = new Map<number, Verification>();
   let i = 0;
   const worker = async () => {
     while (i < jobs.length) {
       const j = jobs[i++];
-      out.set(j.id, await verifyJob(j).catch(() => ({ status: "niet geverifieerd" as const, reason: "controle mislukt" })));
+      out.set(j.id, await verifyJob(j, runStartedAt).catch(() => ({ status: "niet geverifieerd" as const, reason: "controle mislukt" })));
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker));

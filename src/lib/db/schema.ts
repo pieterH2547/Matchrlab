@@ -85,6 +85,7 @@ export const companies = pgTable("companies", {
   /** Gevonden contactadres van de werkgever (jobs@, hr@, …) en waar het stond. */
   contactEmail: text("contact_email"),
   contactSource: text("contact_source"),
+  contactName: text("contact_name"),
   /** Hoe Matchr dit bedrijf vond: maps (lokaal), web, of eerder bekend in de buurt (lokaal-db). */
   discoveredVia: text("discovered_via"),
 });
@@ -134,6 +135,7 @@ export const matches = pgTable(
     /** Contactadres om de kandidaat voor te stellen, enkel zoals gevonden op vacature of site, met vindplaats. */
     contactEmail: text("contact_email"),
     contactSource: text("contact_source"),
+    contactName: text("contact_name"),
     rank: integer("rank").notNull(),
   },
   (t) => [uniqueIndex("matches_run_job_idx").on(t.runId, t.jobId)],

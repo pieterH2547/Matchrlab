@@ -29,10 +29,17 @@ export function emptyFilterReasons(): FilterReasons {
 }
 
 /** Welke punten moet de recruiter nog nagaan? */
-export function toVerifyFlags(s: ScoredLike, companyName: string): string[] {
+/** Afstand nog niet gekend: onze gemeentelijst kent de plaats niet en de AI kon ze niet schatten. */
+export function distanceUnknown(s: ScoredLike, profile?: Profile): boolean {
+  if (s.distanceKm >= 0) return false;
+  return profile ? withinProfileRadius(s.job.location, profile) === null : true;
+}
+
+export function toVerifyFlags(s: ScoredLike, companyName: string, profile?: Profile): string[] {
   const flags: string[] = [];
   if (s.contract === "onbekend") flags.push("contract te verifiëren");
   if (s.employerStatus === "onbekend" || !companyName.trim()) flags.push("werkgever te verifiëren");
+  if (distanceUnknown(s, profile)) flags.push("locatie te verifiëren");
   return flags;
 }
 
@@ -40,9 +47,11 @@ export function rejectReason(s: ScoredLike, companyName: string, profile: Profil
   if (s.contract === "tijdelijk" || s.contract === "interim" || s.contract === "freelance") return "contract_tijdelijk";
   if (s.employerStatus === "tussenpersoon" || isIntermediaryCompany(companyName, s.job.url)) return "tussenpersoon";
   if (s.hardBlocker) return "harde_eis";
-  if (withinProfileRadius(s.job.location, profile) === false) return "buiten_straal";
-  // Afstand volgens de AI: buiten de straal (+5 km marge) = weg; onbekende werkplek enkel bij bedrijfssites.
-  if (s.distanceKm >= 0 ? s.distanceKm > profile.radius_km + 5 : s.job.source !== "company_site") return "buiten_straal";
+  // Onze gemeentelijst beslist eerst (bevestigd binnen of buiten). Kent ze de plaats niet, dan de schatting
+  // van de AI (+5 km marge). Kan niemand de afstand bepalen, dan blijft de vacature met 'locatie te verifiëren'.
+  const verdict = withinProfileRadius(s.job.location, profile);
+  if (verdict === false) return "buiten_straal";
+  if (verdict === null && s.distanceKm >= 0 && s.distanceKm > profile.radius_km + 5) return "buiten_straal";
   if (s.score < threshold) return "onder_drempel";
   return null;
 }

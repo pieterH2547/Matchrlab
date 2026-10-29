@@ -16,8 +16,18 @@ describe("contactadres", () => {
   it("zoekt verder op de site als de vacature geen adres heeft, en verzint niets", async () => {
     const pages: Record<string, string> = { "https://chemco.be/contact": "Contacteer HR via hr@chemco.be" };
     const c = await findContact({ jobText: "Geen adres hier", jobUrl: "https://chemco.be/jobs/1", employerDomain: "chemco.be" }, async (u) => pages[u] ?? "");
-    expect(c).toEqual({ email: "hr@chemco.be", source: "contactpagina werkgever" });
+    expect(c).toMatchObject({ email: "hr@chemco.be", source: "contactpagina werkgever" });
     const none = await findContact({ jobText: "", jobUrl: null, employerDomain: "leeg.be" }, async () => "");
     expect(none).toBeNull();
+  });
+});
+
+import { extractContactName } from "@/lib/pipeline/contact";
+describe("contactpersoon", () => {
+  it("uit de tekst of uit voornaam.naam@, nooit uit jobs@ of info@", () => {
+    expect(extractContactName("Vragen? Neem contact op met Lies Janssens via jobs@chemco.be", "jobs@chemco.be")).toBe("Lies Janssens");
+    expect(extractContactName("Stuur je cv naar ons.", "pieter.de.smet@x.be")).toBeNull();
+    expect(extractContactName("Stuur je cv naar ons.", "jan.peeters@chemco.be")).toBe("Jan Peeters");
+    expect(extractContactName("Mail ons.", "info@chemco.be")).toBeNull();
   });
 });
