@@ -118,7 +118,7 @@ export type NormalizedJob = {
 export type StepStatus = "waiting" | "running" | "done" | "skipped" | "error";
 
 export type StepState = {
-  key: "profile" | "jobboards" | "discover" | "crawl" | "score" | "signals";
+  key: "profile" | "jobboards" | "first" | "discover" | "crawl" | "score" | "signals";
   label: string;
   status: StepStatus;
   /** Korte toelichting met aantallen, bv. "23 / 58 · 9 met open vacatures". */
@@ -159,6 +159,10 @@ export type RunState = {
   /** Scores en verificaties van deze run: bij een tweede ronde of hervatting niet opnieuw doen. */
   scoreCache?: Record<string, import("./score").RawScore>;
   verifyCache?: Record<string, { status: "actief" | "gesloten" | "niet geverifieerd"; reason: string }>;
+  /** Fast Search (eerste matches) of Deep Search (lokale KMO's, websites, AI). */
+  phase?: "fast" | "deep";
+  /** OpenAI Web Search al gedaan in Deep Search. */
+  aiDone?: boolean;
   /** Automatische tweede zoekronde al gedaan (max één keer). */
   secondRoundDone?: boolean;
   /** Run gestopt na het profiel omdat er geen woonplaats was. */
@@ -177,6 +181,8 @@ export type RunStats = {
   employersExamined?: number;
   apiCalls?: Record<string, number>;
   failures?: string[];
+  /** Duur per fase in ms (profiel, jobboards, ontdekking, crawl, verificatie, voorselectie, scoring, db, eerste resultaat). */
+  timings?: Record<string, number>;
   /** Trechter per fase en per bron, met redenen. Nooit cv-inhoud of keys. */
   funnel?: Funnel;
 };
@@ -336,11 +342,12 @@ export type RunView = {
 };
 
 export const STEP_LABELS: Record<StepState["key"], string> = {
-  profile: "Profiel opstellen",
-  jobboards: "Jobboards doorzoeken",
-  discover: "Bedrijven ontdekken",
-  crawl: "Jobpagina's bekijken",
-  score: "Vacatures scoren",
+  profile: "Cv verwerkt",
+  jobboards: "Fast Search · vacaturebronnen",
+  first: "Fast Search · eerste matches",
+  discover: "Deep Search · lokale werkgevers",
+  crawl: "Deep Search · websites, ATS-feeds en AI-zoeken",
+  score: "Alles samen beoordelen",
   signals: "Hiring-signalen en acties",
 };
 

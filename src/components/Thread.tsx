@@ -70,10 +70,10 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
 
       {run.matches.length > 0 && (
-        <Section title={`${run.matches.length} passende vacatures`} action={<ExportBar run={run} />}>
+        <Section title={`${run.matches.length} passende vacatures${running ? " · Deep Search loopt nog" : ""}`} action={<ExportBar run={run} />}>
           <div className="divide-y divide-line">
             {run.matches.map((m) => (
-              <ResultCard key={m.jobId} m={m} />
+              <ResultCard key={m.jobId} m={m} running={running} />
             ))}
           </div>
         </Section>
@@ -163,8 +163,9 @@ function EmployerCard({ e }: { e: EmployerView }) {
 /** Contactadres om de kandidaat voor te stellen: klikbaar (mail) en kopieerbaar, met de vindplaats. */
 /** Contactpersoon en mailadres om de kandidaat voor te stellen: klikbaar en kopieerbaar. */
 /** Contactpersoon en mailadres om de kandidaat voor te stellen: klikbaar en kopieerbaar. */
-function ContactLine({ email, name, source, subject }: { email: string | null; name?: string | null; source: string | null; subject: string }) {
+function ContactLine({ email, name, source, subject, pending = false }: { email: string | null; name?: string | null; source: string | null; subject: string; pending?: boolean }) {
   const [copied, setCopied] = useState(false);
+  if (!email && pending) return <div className="mt-1.5 text-[13px] text-ink-faint">Contact: wordt gezocht zodra Deep Search klaar is</div>;
   if (!email) return <div className="mt-1.5 text-[13px] text-ink-faint">Contact: geen mailadres op de vacature of de website</div>;
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[13.5px]" title={source ? `gevonden op: ${source}` : undefined}>
@@ -440,6 +441,7 @@ function RunSummary({ stats, cost }: { stats: RunStats; cost: number }) {
         {!f && <Row k="Ruwe vacatures gevonden" v={stats.rawJobs} />}
         {!f && <Row k="Unieke vacatures" v={stats.uniqueJobs} />}
         <Row k="Werkgevers onderzocht" v={stats.employersExamined} />
+        <Row k="Eerste matches na" v={stats.timings?.firstResult ? `${Math.round(stats.timings.firstResult / 1000)} s` : undefined} />
         <Row k="Uitvoeringstijd" v={secs ? `${Math.floor(secs / 60)} min ${secs % 60} s` : undefined} />
         <Row k="Geschatte AI-kost (totaal)" v={cost ? `€ ${cost.toFixed(3)}` : "€ 0"} />
       </div>
@@ -610,7 +612,7 @@ function Steps({ steps }: { steps: StepState[] }) {
 
 
 
-function ResultCard({ m }: { m: MatchView }) {
+function ResultCard({ m, running = false }: { m: MatchView; running?: boolean }) {
   const score10 = Math.round(m.score / 10);
   return (
     <article className="py-4 first:pt-2">
@@ -630,7 +632,7 @@ function ResultCard({ m }: { m: MatchView }) {
         </span>
       </div>
       <p className="mt-1.5 text-[14px] leading-relaxed text-ink">{m.argument || m.reason}</p>
-      <ContactLine email={m.contactEmail} name={m.contactName} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} />
+      <ContactLine email={m.contactEmail} name={m.contactName} source={m.contactSource} subject={`Kandidaat voor uw vacature ${m.title}`} pending={running} />
       <MetaLine m={m} />
     </article>
   );

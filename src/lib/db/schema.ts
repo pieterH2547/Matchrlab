@@ -50,6 +50,8 @@ export const runs = pgTable(
     freeText: text("free_text"),
     profile: jsonb("profile").$type<Profile>(),
     status: runStatusEnum("status").notNull().default("profile"),
+    /** Slot zodat dezelfde stap nooit twee keer tegelijk loopt (dubbele tab, herhaalde aanroep na een time-out). */
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
     costEstimateEur: real("cost_estimate_eur").notNull().default(0),
     threadId: text("thread_id").notNull(),
     /** Voortgang per stap + cursors, zodat een afgebroken run hervat kan worden. */

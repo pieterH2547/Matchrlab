@@ -68,8 +68,68 @@ export function AdminPanel({ me }: { me: string }) {
       </section>
       <ThresholdLine current={byKey.get("MIN_SCORE")?.value} onChanged={load} />
       <WebSearchSection byKey={byKey} model={ai?.effective.cheap} onChanged={load} />
+      <PerfSection />
       <AdminFlow settings={settings} ai={ai} />
     </div>
+  );
+}
+
+const PHASE_LABEL: Record<string, string> = {
+  firstResult: "Tijd tot eerste matches",
+  total: "Volledige run",
+  profile: "Cv-analyse",
+  jobboards: "Vacaturebronnen (Fast)",
+  verifyFast: "Verificatie (Fast)",
+  scoringFast: "AI-scoring (Fast)",
+  discover: "Lokale werkgevers ontdekken",
+  crawl: "Websites en ATS-feeds",
+  aiSearch: "OpenAI Web Search",
+  verify: "Verificatie (Deep)",
+  scoring: "AI-scoring (Deep)",
+  contacts: "Contactadressen",
+  scoreTotal: "Eindbeoordeling totaal",
+};
+
+/** Snelheid per fase over de laatste runs (p50 = mediaan, p95 = traagste 5%). */
+function PerfSection() {
+  const [data, setData] = useState<{ runs: number; phases: { phase: string; n: number; p50: number; p95: number }[] } | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void fetch("/api/admin/perf", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then(setData)
+        .catch(() => undefined);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  if (!data || !data.phases.length) return null;
+  const order = Object.keys(PHASE_LABEL);
+  const rows = [...data.phases].sort((a, b) => (order.indexOf(a.phase) + 1 || 99) - (order.indexOf(b.phase) + 1 || 99));
+  const s = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Snelheid · laatste {data.runs} runs</h2>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-ink-faint text-left text-xs">
+            <th className="font-normal py-1">Fase</th>
+            <th className="font-normal py-1 text-right">p50</th>
+            <th className="font-normal py-1 text-right">p95</th>
+            <th className="font-normal py-1 text-right">runs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.phase} className="border-t border-line">
+              <td className="py-1">{PHASE_LABEL[r.phase] ?? r.phase}</td>
+              <td className="py-1 text-right mono">{s(r.p50)}</td>
+              <td className="py-1 text-right mono">{s(r.p95)}</td>
+              <td className="py-1 text-right mono text-ink-faint">{r.n}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

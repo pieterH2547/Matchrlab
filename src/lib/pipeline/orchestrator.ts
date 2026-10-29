@@ -10,6 +10,7 @@ import type { Run, Company, Job } from "@/lib/db/schema";
 import { CostMeter } from "@/lib/llm";
 import { LIMITS } from "@/lib/config";
 import { buildProfile, isVagueRegion } from "./profile";
+import { searchOpenAIJobs } from "./aisearch";
 import { searchJobboards, searchTitles, searchPlaces, searchTargetedWeb, searchJooble, searchAdzuna } from "./jobboards";
 import { discoverCompanies, type DiscoveredCompany } from "./discover";
 import { verifyMany } from "./verify";
@@ -50,6 +51,33 @@ function companyLabel(c: Pick<Company, "name" | "domain">): string {
 
 /** Eén stap uitvoeren. Geeft de nieuwe status terug. */
 export async function advanceRun(runId: number, emit: Emit): Promise<Run["status"]> {
+  // Idempotent hervatten: loopt deze run al ergens (andere tab, of de vorige aanroep na een afgebroken
+  // verbinding), dan wachten we tot die klaar is in plaats van dezelfde stap dubbel te doen.
+  const deadline = Date.now() + 250_000;
+  while (!(await acquireLock(runId))) {
+    if (Date.now() > deadline) {
+      const row = (await db().select({ status: schema.runs.status }).from(schema.runs).where(eq(schema.runs.id, runId)).limit(1))[0];
+      return row?.status ?? "failed";
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  try {
+    return await advanceRunLocked(runId, emit);
+  } finally {
+    await db().update(schema.runs).set({ lockedUntil: null }).where(eq(schema.runs.id, runId)).catch(() => undefined);
+  }
+}
+
+async function acquireLock(runId: number): Promise<boolean> {
+  const rows = await db()
+    .update(schema.runs)
+    .set({ lockedUntil: sql`now() + interval '295 seconds'` })
+    .where(and(eq(schema.runs.id, runId), sql`(${schema.runs.lockedUntil} is null or ${schema.runs.lockedUntil} < now())`))
+    .returning({ id: schema.runs.id });
+  return rows.length > 0;
+}
+
+async function advanceRunLocked(runId: number, emit: Emit): Promise<Run["status"]> {
   const { result, usage } = await withUsage(() => advanceRunInner(runId, emit));
   // API-aanroepen per bron en mislukte bronnen bijschrijven in het run-overzicht.
   if (Object.keys(usage.calls).length || usage.failures.length) {
@@ -78,6 +106,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
   try {
     switch (run.status) {
       case "profile": {
+        const tProfile = Date.now();
         state = setStep(state, "profile", { status: "running", detail: "cv en opdracht lezen" });
         emit({ type: "steps", steps: state.steps });
         const profile = await buildProfile({ cvText: run.cvText ?? "", freeText: run.freeText ?? "", previousProfile: run.profile }, meter);
@@ -96,6 +125,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           return "done";
         }
         state = setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · ${profile.region} · ${profile.radius_km} km` });
+        state = timed(state, "profile", Date.now() - tProfile);
         await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "jobboards", state });
         await addCost(runId, meter);
         emit({ type: "status", status: "jobboards", state });
@@ -109,17 +139,14 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           return "done";
         }
         const profile = run.profile!;
-        state = setStep(state, "jobboards", { status: "running", detail: "Google Jobs, Jooble, Adzuna, gerichte Google-zoekopdrachten en OpenAI Web Search" });
+        // Fast Search: enkel de snelle vacaturebronnen. Bedrijfsontdekking, websites en OpenAI Web Search
+        // lopen daarna in Deep Search, terwijl de eerste matches al zichtbaar zijn.
+        const t0 = Date.now();
+        state = setStep(state, "jobboards", { status: "running", detail: "Google Jobs, Jooble, Adzuna en gerichte Google-zoekopdrachten (VDAB, Indeed, LinkedIn, ATS)" });
         emit({ type: "steps", steps: state.steps });
-        // Spoor B (werkgevers via Google Maps) loopt tegelijk mee: wacht niet op de vacaturebronnen.
-        state = setStep(state, "discover", { status: "running", detail: "loopt mee met de vacaturebronnen" });
-        emit({ type: "steps", steps: state.steps });
-        const remainingBraveB = Math.max(0, LIMITS.braveQueriesPerRun - (state.braveQueriesUsed ?? 0));
-        const [boards, prefetched] = await Promise.all([
-          searchJobboards(profile),
-          discoverCompanies(profile, meter, { maxQueries: Math.min(8, remainingBraveB) }).catch(() => null),
-        ]);
-        if (prefetched) state.prefetchedDiscovery = prefetched;
+        const boards = await searchJobboards(profile, {
+          ai: async () => ({ jobs: [], rounds: 0, searches: 0, raw: 0, costEur: 0, durationMs: 0, model: null, queries: [], skipped: "loopt in Deep Search" }),
+        });
         const unique = dedupeJobs(boards.jobs);
         const pf = prefilterWithReasons(unique, profile);
         const filtered = pf.kept;
@@ -148,15 +175,18 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           jobIds: [...(state.jobIds ?? []), ...stored.map((j) => j.id)],
           boardJobsFound: stored.length,
           braveQueriesUsed: (state.braveQueriesUsed ?? 0) + boards.braveQueries,
+          phase: "fast",
         };
-        await saveRun(runId, { status: "discover", state });
+        state = timed(state, "jobboards", Date.now() - t0);
+        await saveRun(runId, { status: "score", state });
         await addCost(runId, meter);
-        emit({ type: "status", status: "discover", state });
-        return "discover";
+        emit({ type: "status", status: "score", state });
+        return "score";
       }
       case "discover": {
         const profile = run.profile!;
-        state = setStep(state, "discover", { status: "running", detail: "zoekopdrachten bedenken" });
+        const tDisc = Date.now();
+        state = setStep(state, "discover", { status: "running", detail: "lokale werkgevers zoeken per gemeente" });
         emit({ type: "steps", steps: state.steps });
         // Bedrijven die < 7 dagen geleden gecrawld zijn: overslaan en hun jobs meenemen.
         const fresh = await recentlyCrawledCompanies();
@@ -194,7 +224,9 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
               prefilter: { regio: p0.regio + reusedPf.dropped.regio, tussenpersoon: p0.tussenpersoon + reusedPf.dropped.tussenpersoon, uitsluiting: p0.uitsluiting + reusedPf.dropped.uitsluiting } },
           };
         }
-        const next: Run["status"] = toCrawl.length ? "crawl" : "score";
+        // Ook zonder websites om te bekijken naar de crawlstap: daar loopt OpenAI Web Search mee.
+        const next: Run["status"] = toCrawl.length || !state.aiDone ? "crawl" : "score";
+        state = timed(state, "discover", Date.now() - tDisc);
         await saveRun(runId, { status: next, state });
         await addCost(runId, meter);
         emit({ type: "status", status: next, state });
@@ -215,10 +247,16 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           emit({ type: "steps", steps: state.steps });
         };
         report();
-        // Pool: tot crawlConcurrency bedrijven tegelijk; na het tijdsbudget starten we geen nieuwe meer.
+        // OpenAI Web Search loopt tegelijk met het bekijken van de websites (één keer per run).
+        const aiRun = !state.aiDone ? runAiSearch(profile) : null;
+        let aiPending = Boolean(aiRun);
+        void aiRun?.then(() => {
+          aiPending = false;
+        });
         let cursor = 0;
         const worker = async () => {
-          while (cursor < todo.length && Date.now() - started < LIMITS.stepTimeBudgetMs) {
+          // Zolang OpenAI Web Search loopt, gewoon verder crawlen (die tijd is er toch); hard plafond 150 s.
+          while (cursor < todo.length && (Date.now() - started < LIMITS.stepTimeBudgetMs || aiPending) && Date.now() - started < 150_000) {
             const d = todo[cursor++];
             const allowSearch = (state.braveQueriesUsed ?? 0) < LIMITS.braveQueriesPerRun;
             const r = await withTimeout(crawlDomain(d, profile, meter, allowSearch), LIMITS.perDomainTimeoutMs).catch(
@@ -237,6 +275,25 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           }
         };
         await Promise.all(Array.from({ length: Math.min(LIMITS.crawlConcurrency, todo.length) }, worker));
+        if (aiRun) {
+          state = setStep(state, "jobboards", { status: "done", detail: `${state.steps.find((s) => s.key === "jobboards")?.detail ?? ""} · OpenAI Web Search loopt` });
+          const ai = await aiRun;
+          meter.eur += ai.result.costEur;
+          state.aiDone = true;
+          state.jobIds = [...(state.jobIds ?? []), ...ai.stored.map((j) => j.id)];
+          const f = state.stats?.funnel ?? {};
+          state.stats = {
+            ...(state.stats ?? {}),
+            funnel: {
+              ...f,
+              found: (f.found ?? 0) + ai.result.jobs.length,
+              sources: { ...(f.sources ?? {}), openai_web: { queries: ai.result.searches, raw: ai.result.raw, kept: ai.result.jobs.length, error: ai.result.error, skipped: ai.result.skipped } },
+              ai: { rounds: ai.result.rounds, searches: ai.result.searches, raw: ai.result.raw, kept: ai.result.jobs.length, costEur: ai.result.costEur, durationMs: ai.result.durationMs, model: ai.result.model, error: ai.result.error, skipped: ai.result.skipped },
+            },
+          };
+          state = timed(state, "aiSearch", ai.result.durationMs);
+        }
+        state = timed(state, "crawl", Date.now() - started, true);
         await addCost(runId, meter);
         if (done.size >= total) {
           state = setStep(state, "crawl", { status: "done", detail: `${total} bedrijven · ${state.companiesWithJobs ?? 0} met open vacatures · ${state.siteJobsFound ?? 0} vacatures` });
@@ -250,7 +307,9 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
       }
       case "score": {
         const profile = run.profile!;
-        state = setStep(state, "score", { status: "running", detail: "dubbels samenvoegen" });
+        const fast = state.phase === "fast";
+        const tScore = Date.now();
+        state = setStep(state, fast ? "first" : "score", { status: "running", detail: fast ? "beste vacatures uit de bronnen controleren en scoren" : "alles samenvoegen" });
         emit({ type: "steps", steps: state.steps });
         const funnel: Funnel = { ...(state.stats?.funnel ?? {}) };
         const ids = Array.from(new Set(state.jobIds ?? []));
@@ -271,7 +330,9 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         // Verificatie vóór de eindscoring: gesloten vacatures vallen weg, de rest krijgt een status.
         state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${shortlistRaw.length} controleren of ze nog open zijn` });
         emit({ type: "steps", steps: state.steps });
-        const toVerify = shortlistRaw.slice(0, LIMITS.maxVerifyPerRun);
+        // Fast Search: de 20 beste eerst, zodat er snel iets bruikbaars staat.
+        const toVerify = shortlistRaw.slice(0, fast ? 20 : LIMITS.maxVerifyPerRun);
+        const tVerify = Date.now();
         // Al gecontroleerd in een eerdere stap van deze run: niet opnieuw ophalen.
         const vCache = state.verifyCache ?? {};
         const verdicts = await verifyMany(toVerify.filter((j) => !vCache[String(j.id)]), 8, state.stats?.startedAt ?? run.createdAt.getTime());
@@ -283,6 +344,8 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         funnel.closed = closed;
         funnel.verifiedActive = Array.from(verdicts.values()).filter((v) => v.status === "actief").length;
         funnel.toScoring = shortlist.length;
+        state = timed(state, fast ? "verifyFast" : "verify", Date.now() - tVerify);
+        const tScoring = Date.now();
 
         state = setStep(state, "score", { status: "running", detail: `${dedupedJobs.length} uniek · ${closed} gesloten · ${shortlist.length} naar eindscoring` });
         emit({ type: "steps", steps: state.steps });
@@ -291,6 +354,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const result = await scoreJobs(profile, shortlist, names, meter, scoreInfo, undefined, scoreCache);
         state.scoreCache = Object.fromEntries((result.raw ?? []).map((r) => [String(r.id), r]));
         funnel.scoring = scoreInfo;
+        state = timed(state, fast ? "scoringFast" : "scoring", Date.now() - tScoring);
         const threshold = await minScore100();
         // Harde zeef: tijdelijk/interim, bevestigde tussenpersoon, buiten straal, harde eis, onder de drempel.
         // Onbekend contract of onbekende werkgever blijft, met het label 'te verifiëren'.
@@ -300,7 +364,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
 
         // Weinig relevante resultaten: één beperkte tweede zoekronde met andere titels en gemeenten.
         // De straal, regio en harde voorwaarden blijven dezelfde; vacatures die al gescoord zijn, worden niet opnieuw beoordeeld.
-        if (passing.length < LIMITS.secondRoundBelow && !state.secondRoundDone) {
+        if (!fast && passing.length < LIMITS.secondRoundBelow && !state.secondRoundDone) {
           state.secondRoundDone = true;
           state = setStep(state, "score", { status: "running", detail: `${passing.length} passend: tweede zoekronde met verwante titels en andere gemeenten` });
           emit({ type: "steps", steps: state.steps });
@@ -369,7 +433,9 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         // Contactadres per match (vacaturetekst, vacaturepagina, site van de werkgever), parallel en begrensd.
         state = setStep(state, "score", { status: "running", detail: "contactadressen zoeken" });
         emit({ type: "steps", steps: state.steps });
-        const contacts = await contactsForJobs(result.scored.map((s) => s.job));
+        const tContacts = Date.now();
+        const contacts = fast ? new Map<number, Contact>() : await contactsForJobs(result.scored.map((s) => s.job));
+        state = timed(state, "contacts", fast ? 0 : Date.now() - tContacts);
         await db().delete(schema.matches).where(eq(schema.matches.runId, runId));
         if (result.scored.length) {
           await db()
@@ -383,6 +449,27 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
                 return { runId, jobId: s.job.id, score: s.score, reason: s.reason, argument: s.argument, risk: s.risk, rank: i + 1, verification, contactEmail: c?.email ?? null, contactSource: c?.source ?? null, contactName: c?.name ?? null };
               }),
             );
+        }
+
+        if (fast) {
+          // Eerste matches staan er; Deep Search (lokale werkgevers, websites, OpenAI Web Search) gaat verder.
+          const firstMs = Date.now() - (state.stats?.startedAt ?? run.createdAt.getTime());
+          state = setStep(state, "first", { status: "done", detail: `${result.scored.length} matches uit ${dedupedJobs.length} vacatures · na ${Math.round(firstMs / 1000)} s` });
+          state = timed(state, "firstResult", firstMs);
+          state = timed(state, "scoreFastTotal", Date.now() - tScore);
+          state = {
+            ...state,
+            phase: "deep",
+            intro: result.scored.length
+              ? `${result.intro} Ik zoek nu verder bij lokale werkgevers en op hun websites; nieuwe matches komen erbij.`
+              : "Nog geen match uit de vacaturebronnen. Ik zoek nu verder bij lokale werkgevers en op hun websites.",
+            followups: [],
+            stats: { ...(state.stats ?? {}), funnel },
+          };
+          await saveRun(runId, { status: "discover", state });
+          await addCost(runId, meter);
+          emit({ type: "status", status: "discover", state });
+          return "discover";
         }
 
         // Werkgevers (spoor B-resultaat): ook zonder passende vacature, strikt feitelijk.
@@ -411,6 +498,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
             funnel,
           },
         };
+        state = timed(state, "scoreTotal", Date.now() - tScore);
         await saveRun(runId, { status: "done", state });
         await addCost(runId, meter);
         await db()
@@ -463,6 +551,23 @@ async function saveDiscovered(companies: DiscoveredCompany[]): Promise<void> {
       },
     })
     .catch(() => undefined);
+}
+
+/** Duur per fase bijhouden (ms). `add` telt op over meerdere stap-aanroepen (crawl). Geen persoonsgegevens. */
+function timed(state: RunState, key: string, ms: number, add = false): RunState {
+  const t = { ...(state.stats?.timings ?? {}) };
+  t[key] = add ? (t[key] ?? 0) + ms : ms;
+  return { ...state, stats: { ...(state.stats ?? {}), timings: t } };
+}
+
+/** OpenAI Web Search voor Deep Search: resultaten door dezelfde dedup en voorfilter, dan bewaren. */
+async function runAiSearch(profile: Profile): Promise<{ result: Awaited<ReturnType<typeof searchOpenAIJobs>>; stored: Job[] }> {
+  const result = await searchOpenAIJobs(profile).catch(
+    (e: unknown) => ({ jobs: [], rounds: 0, searches: 0, raw: 0, costEur: 0, durationMs: 0, model: null, queries: [], error: redactSecrets(e instanceof Error ? e.message : String(e)).slice(0, 120) }) as Awaited<ReturnType<typeof searchOpenAIJobs>>,
+  );
+  const pf = prefilterWithReasons(dedupeJobs(result.jobs), profile);
+  const stored = await upsertJobs(pf.kept).catch(() => [] as Job[]);
+  return { result, stored };
 }
 
 /** Laat een trage taak niet langer dan `ms` duren. */

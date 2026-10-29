@@ -138,7 +138,8 @@ export async function matchesForRun(runId: number): Promise<MatchView[]> {
 export async function runView(run: Run): Promise<RunView> {
   const msgs = await db().select().from(schema.messages).where(eq(schema.messages.runId, run.id));
   const userMsg = msgs.find((m) => m.content.kind === "user")?.content;
-  const matches = run.status === "done" ? await matchesForRun(run.id) : [];
+  // Ook tijdens Deep Search: de eerste matches staan al klaar.
+  const matches = await matchesForRun(run.id);
   return {
     id: run.id,
     createdAt: run.createdAt.toISOString(),
