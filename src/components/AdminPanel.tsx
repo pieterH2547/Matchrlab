@@ -105,7 +105,7 @@ export function AdminPanel({ me }: { me: string }) {
         {provider === "anthropic" && <span className="text-ink-soft"> — enkel Claude web search (±€0,01 per zoekopdracht). Vul Linkup, Tavily of Exa in om gratis te zoeken.</span>}
         {provider === "geen" && <span className="text-ink-soft"> — er is geen enkele zoekmachine ingesteld.</span>}
       </div>
-      <AdminFlow settings={settings} />
+      <AdminFlow settings={settings} ai={ai} />
       {GROUPS.map((g) => (
         <section key={g.title}>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">{g.title}</h2>

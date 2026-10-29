@@ -105,7 +105,7 @@ type OpenAIChat = {
  */
 async function openaiJson<T extends z.ZodTypeAny>(opts: LlmOptions<T>): Promise<z.infer<T>> {
   const key = await getSetting("OPENAI_API_KEY");
-  if (!key) throw new Error("OpenAI API-key ontbreekt. Vul ze in via Instellingen.");
+  if (!key) throw new Error("Er is nog geen OpenAI-key ingesteld. Plak ze in Instellingen (rechtsboven) en start de run opnieuw");
   const model = await resolveOpenAIModel(opts.model === "scoring" ? "scoring" : "cheap");
   const jsonSchema = zod.toJSONSchema(opts.schema as unknown as zod.ZodType) as Record<string, unknown>;
   delete jsonSchema.$schema;

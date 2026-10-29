@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-type SettingLite = { key: string; source: "admin" | "env" | "none" };
+type SettingLite = { key: string; source: "admin" | "env" | "none"; value?: string };
+export type AiInfo = { provider: string; ids: string[]; auto: string | null; effective: { cheap: string; scoring: string } };
 
 type Tool = {
   name: string;
@@ -15,85 +16,126 @@ type Tool = {
   note?: string;
   /** Domein voor het logo (officiële favicon van de dienst). */
   domain?: string;
+  /** Wordt deze tool in de huidige instellingen effectief gebruikt? */
+  active?: boolean;
 };
 
 type Step = { n: number; title: string; short: string; what: string; tools: Tool[]; rules?: string[] };
 
-const SEARCH_CHAIN: Tool[] = [
-  { name: "Linkup", key: "LINKUP_API_KEY", test: "linkup", note: "1e keuze", domain: "linkup.so" },
-  { name: "Tavily", key: "TAVILY_API_KEY", test: "tavily", note: "2e", domain: "tavily.com" },
-  { name: "Exa", key: "EXA_API_KEY", test: "exa", note: "3e", domain: "exa.ai" },
-  { name: "Brave", key: "BRAVE_SEARCH_API_KEY", test: "brave", note: "4e", domain: "brave.com" },
-  { name: "Claude web search", key: "ANTHROPIC_API_KEY", test: "anthropic", note: "enkel als gekozen, betalend", domain: "claude.ai" },
+type Ctx = { has: (key: string) => boolean; value: (key: string) => string | undefined; ai: AiInfo | null };
+
+const SEARCH_ALL: Tool[] = [
+  { name: "Linkup", key: "LINKUP_API_KEY", test: "linkup", domain: "linkup.so" },
+  { name: "Tavily", key: "TAVILY_API_KEY", test: "tavily", domain: "tavily.com" },
+  { name: "Exa", key: "EXA_API_KEY", test: "exa", domain: "exa.ai" },
+  { name: "Brave", key: "BRAVE_SEARCH_API_KEY", test: "brave", domain: "brave.com" },
+  { name: "Claude web search", key: "ANTHROPIC_API_KEY", test: "anthropic", domain: "claude.ai", note: "betalend" },
 ];
 
-const STEPS: Step[] = [
-  {
-    n: 1,
-    title: "Profiel opstellen",
-    short: "Cv lezen",
-    what: "Leest het cv (pdf, docx) en je opdracht. Maakt functietitels, regio en straal, uitsluitingen, de kandidaat in 3 regels en open vragen.",
-    tools: [{ name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai", note: "standaard" }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude", note: "optioneel" }],
-  },
-  {
-    n: 2,
-    title: "Jobboards doorzoeken",
-    short: "Jobboards",
-    what: "Zoekt vacatures op functietitel en regio.",
-    tools: [
-      { name: "Adzuna", key: "ADZUNA_APP_ID", test: "adzuna", domain: "adzuna.be" },
-      { name: "Jooble", key: "JOOBLE_API_KEY", test: "jooble", domain: "jooble.org" },
-      { name: "VDAB (via zoekketen)", free: true, domain: "vdab.be" },
-    ],
-    rules: ["Plaats buiten de straal of onherkenbaar: weg", "Interim, tijdelijk, bureaus: weg"],
-  },
-  {
-    n: 3,
-    title: "Bedrijven ontdekken",
-    short: "Bedrijven vinden",
-    what: "Claude bedenkt zoekopdrachten naar eindwerkgevers in de regio; de zoekketen haalt bedrijfssites op. Valt een zoekmachine uit, dan neemt de volgende over.",
-    tools: [{ name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" }, ...SEARCH_CHAIN],
-    rules: ["Enkel gemeenten binnen de straal", "Jobboards, interim-, recruitment- en consultancybureaus: uitgesloten"],
-  },
-  {
-    n: 4,
-    title: "Jobpagina vinden",
-    short: "Jobpagina vinden",
-    what: "Per bedrijf: ATS herkennen, standaardpaden (/jobs, /vacatures, …) proberen, de homepage-links laten kiezen, of de zoekketen met site:.",
-    tools: [{ name: "ATS-detectie", free: true }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" }, { name: "Zoekketen", free: true, note: "zie stap 3" }],
-    rules: ["Homepage van een tussenpersoon: bedrijf overslaan"],
-  },
-  {
-    n: 5,
-    title: "Vacatures lezen",
-    short: "Vacatures lezen",
-    what: "Haalt de vacatures op: eerst de publieke ATS-feed, anders de pagina zelf (gewone fetch, dan Jina, dan Firecrawl voor zware JavaScript-sites).",
-    tools: [
-      { name: "ATS-feeds (Recruitee, Greenhouse, Lever, …)", free: true, domain: "recruitee.com" },
-      { name: "Jina Reader", free: true, note: "key optioneel", domain: "jina.ai" },
-      { name: "Firecrawl", key: "FIRECRAWL_API_KEY", test: "firecrawl", domain: "firecrawl.dev" },
-      { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" },
-    ],
-  },
-  {
-    n: 6,
-    title: "Scoren en filteren",
-    short: "Scoren",
-    what: "Een grove voorselectie, dan een score op 10 met het lichte model: kerntaken 3, vaardigheden 3, senioriteit 2, sector 1, mobiliteit 1, met één argument en één risico.",
-    tools: [
-      { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: "claude" }, { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", test: "openai" },
-      { name: "OpenAI (mini)", key: "OPENAI_API_KEY", domain: "openai.com", note: "scoring" }, { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", note: "optioneel" },
-    ],
-    rules: ["Minstens 6/10", "Vast contract, eindwerkgever bij naam", "Binnen de straal", "Max 2 per werkgever, max 10 in totaal"],
-  },
-];
+/** Zoekketen in de echte volgorde, zoals src/lib/search.ts ze opbouwt. */
+function searchChain(ctx: Ctx): Tool[] {
+  const wanted = ctx.value("SEARCH_PROVIDER") ?? "auto";
+  const base = wanted === "anthropic" ? SEARCH_ALL : SEARCH_ALL.filter((t) => t.test !== "anthropic");
+  const first = base.find((t) => t.test === wanted);
+  const ordered = first ? [first, ...base.filter((t) => t !== first)] : base;
+  let rank = 0;
+  const out = ordered.map((t) => {
+    const active = ctx.has(t.key!);
+    return { ...t, active, note: active ? `${++rank}e${t.note ? ` · ${t.note}` : ""}` : t.note };
+  });
+  // Claude web search tonen we enkel als optie in de details, niet als hij niet gekozen is.
+  return wanted === "anthropic" ? out : [...out, { ...SEARCH_ALL[4], active: false, note: "enkel als je hem kiest" }];
+}
+
+/** De AI zoals hij effectief draait: welke aanbieder, welk model. */
+function aiTools(ctx: Ctx, task: "cheap" | "scoring"): Tool[] {
+  const provider = ctx.ai?.provider ?? ctx.value("AI_PROVIDER") ?? "openai";
+  const model = ctx.ai?.effective[task];
+  const openai: Tool = { name: model ? `OpenAI · ${model}` : "OpenAI", key: "OPENAI_API_KEY", domain: "openai.com", test: task === "cheap" ? "openai" : undefined };
+  const claude: Tool = { name: "Claude Haiku", key: "ANTHROPIC_API_KEY", domain: "claude.ai", test: task === "cheap" ? "claude" : undefined };
+  if (provider === "anthropic") return [{ ...claude, active: ctx.has("ANTHROPIC_API_KEY") }, { ...openai, active: false, note: "niet gekozen" }];
+  if (provider === "auto") return [{ ...openai, active: ctx.has("OPENAI_API_KEY") }, { ...claude, active: ctx.has("ANTHROPIC_API_KEY"), note: "reserve" }];
+  return [{ ...openai, active: ctx.has("OPENAI_API_KEY") }, { ...claude, active: false, note: "niet gekozen" }];
+}
+
+function aiLabel(ctx: Ctx): string {
+  const p = ctx.ai?.provider ?? ctx.value("AI_PROVIDER") ?? "openai";
+  return p === "anthropic" ? "Claude" : "OpenAI";
+}
+
+function buildSteps(ctx: Ctx): Step[] {
+  const on = (t: Tool): Tool => ({ ...t, active: t.free || (t.key ? ctx.has(t.key) : true) });
+  const chain = searchChain(ctx);
+  const chainActive = chain.some((t) => t.active);
+  const ai = aiLabel(ctx);
+  return [
+    {
+      n: 1,
+      title: "Profiel opstellen",
+      short: "Cv lezen",
+      what: `${ai} leest het cv (pdf, docx) en je opdracht en maakt functietitels, regio en straal, uitsluitingen, de kandidaat in 3 regels en open vragen.`,
+      tools: aiTools(ctx, "cheap"),
+    },
+    {
+      n: 2,
+      title: "Jobboards doorzoeken",
+      short: "Jobboards",
+      what: "Zoekt vacatures op functietitel en regio in de jobboards die ingesteld zijn.",
+      tools: [
+        on({ name: "Adzuna", key: "ADZUNA_APP_ID", test: "adzuna", domain: "adzuna.be" }),
+        on({ name: "Jooble", key: "JOOBLE_API_KEY", test: "jooble", domain: "jooble.org" }),
+        { name: "VDAB", domain: "vdab.be", active: chainActive, note: chainActive ? "via de zoekketen" : "heeft een zoekmachine nodig" },
+      ],
+      rules: ["Plaats buiten de straal of onherkenbaar: weg", "Interim, tijdelijk, bureaus: weg"],
+    },
+    {
+      n: 3,
+      title: "Bedrijven ontdekken",
+      short: "Bedrijven vinden",
+      what: `${ai} bedenkt zoekopdrachten naar eindwerkgevers in de regio; de zoekketen haalt bedrijfssites op. Valt een zoekmachine uit, dan neemt de volgende over.`,
+      tools: [...aiTools(ctx, "cheap").filter((t) => t.active), ...chain],
+      rules: ["Enkel gemeenten binnen de straal", "Jobboards, interim-, recruitment- en consultancybureaus: uitgesloten"],
+    },
+    {
+      n: 4,
+      title: "Jobpagina vinden",
+      short: "Jobpagina vinden",
+      what: "Per bedrijf: ATS herkennen, standaardpaden (/jobs, /vacatures, …) proberen, de AI een link laten kiezen op de homepage, of de zoekketen met site:.",
+      tools: [
+        { name: "ATS-detectie", free: true, active: true },
+        ...aiTools(ctx, "cheap").filter((t) => t.active),
+        { name: "Zoekketen", active: chainActive, note: "zie stap 3" },
+      ],
+      rules: ["Homepage van een tussenpersoon: bedrijf overslaan"],
+    },
+    {
+      n: 5,
+      title: "Vacatures lezen",
+      short: "Vacatures lezen",
+      what: "Eerst de publieke ATS-feed; anders de pagina zelf: gewone fetch, dan Jina, dan Firecrawl voor zware JavaScript-sites.",
+      tools: [
+        { name: "ATS-feeds (Recruitee, Greenhouse, Lever, …)", free: true, active: true, domain: "recruitee.com" },
+        { name: "Jina Reader", free: true, active: true, note: "key optioneel", domain: "jina.ai" },
+        on({ name: "Firecrawl", key: "FIRECRAWL_API_KEY", test: "firecrawl", domain: "firecrawl.dev" }),
+        ...aiTools(ctx, "cheap").filter((t) => t.active),
+      ],
+    },
+    {
+      n: 6,
+      title: "Scoren en filteren",
+      short: "Scoren",
+      what: "Een grove voorselectie, dan een score op 10: kerntaken 3, vaardigheden 3, senioriteit 2, sector 1, mobiliteit 1, met één argument en één risico.",
+      tools: aiTools(ctx, "scoring"),
+      rules: ["Minstens 6/10", "Vast contract, eindwerkgever bij naam", "Binnen de straal", "Max 2 per werkgever, max 10 in totaal"],
+    },
+  ];
+}
 
 type Status = "on" | "free" | "off";
 
-function toolStatus(tool: Tool, status: Map<string, string>): Status {
-  if (tool.free) return "free";
-  const src = tool.key ? status.get(tool.key) ?? "none" : "none";
-  return src === "admin" || src === "env" ? "on" : "off";
+function toolStatus(tool: Tool): Status {
+  if (!tool.active) return "off";
+  return tool.free ? "free" : "on";
 }
 
 const RING: Record<Status, string> = {
@@ -103,16 +145,17 @@ const RING: Record<Status, string> = {
 };
 
 /** Logo van de dienst via zijn officiële favicon; valt terug op initialen als het niet laadt. */
-function Logo({ tool, size = 28, st }: { tool: Tool; size?: number; st: Status }) {
+function Logo({ tool, size = 28 }: { tool: Tool; size?: number }) {
   const [failed, setFailed] = useState(false);
+  const st = toolStatus(tool);
   const initials = tool.name
     .replace(/\(.*\)/, "")
-    .split(/\s+/)
+    .split(/[\s·]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join("");
-  const label = `${tool.name} — ${st === "on" ? "ingesteld" : st === "free" ? "gratis, altijd aan" : "niet ingesteld"}`;
+  const label = `${tool.name} — ${st === "on" ? "actief" : st === "free" ? "gratis, altijd aan" : "niet actief"}`;
   return (
     <span title={label} aria-label={label} role="img" className={`inline-flex items-center justify-center rounded-md bg-white shrink-0 ${RING[st]}`} style={{ width: size, height: size }}>
       {tool.domain && !failed ? (
@@ -133,11 +176,6 @@ function Logo({ tool, size = 28, st }: { tool: Tool; size?: number; st: Status }
   );
 }
 
-function uniqueByName(tools: Tool[]): Tool[] {
-  const seen = new Set<string>();
-  return tools.filter((t) => (seen.has(t.name) ? false : (seen.add(t.name), true)));
-}
-
 function Arrow() {
   return (
     <svg width="28" height="12" viewBox="0 0 28 12" className="shrink-0 text-ink-faint self-center" aria-hidden>
@@ -146,12 +184,12 @@ function Arrow() {
   );
 }
 
-function Endpoint({ title, sub }: { title: string; sub: string }) {
+function Endpoint({ title, sub, kind }: { title: string; sub: string; kind: "in" | "out" }) {
   return (
     <div className="w-[104px] shrink-0 self-center text-center">
       <div className="mx-auto w-10 h-10 rounded-full border-2 border-ink flex items-center justify-center">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-          {title.startsWith("Cv") ? <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5" /> : <path d="M5 12l4 4L19 6" />}
+          {kind === "in" ? <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5" /> : <path d="M5 12l4 4L19 6" />}
         </svg>
       </div>
       <div className="mt-2 text-sm font-medium">{title}</div>
@@ -160,48 +198,57 @@ function Endpoint({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-/** Kaart van de run: cv → zes stappen → resultaat, met per stap de logo's van de tools. */
-function FlowMap({ status }: { status: Map<string, string> }) {
+/** Kaart: enkel wat effectief draait, in de echte volgorde. */
+function FlowMap({ steps }: { steps: Step[] }) {
   return (
     <div className="border border-line rounded-xl bg-paper-soft p-4 overflow-x-auto">
-      <div className="flex items-stretch gap-1 min-w-[1000px]">
-        <Endpoint title="Cv + opdracht" sub="pdf, docx of tekst" />
+      <div className="flex items-stretch gap-1 min-w-[1040px]">
+        <Endpoint title="Cv + opdracht" sub="pdf, docx of tekst" kind="in" />
         <Arrow />
-        {STEPS.map((step, i) => {
-          const tools = uniqueByName(step.tools.filter((t) => t.name !== "Zoekketen" && t.name !== "ATS-detectie"));
+        {steps.map((step, i) => {
+          const active = step.tools.filter((t) => t.active && t.name !== "Zoekketen");
           const isChain = step.n === 3;
+          const chain = isChain ? active.filter((t) => SEARCH_ALL.some((s) => s.name === t.name)) : [];
+          const rest = isChain ? active.filter((t) => !chain.includes(t)) : active;
+          const blocked = isChain && chain.length === 0;
           return (
             <div key={step.n} className="flex items-stretch gap-1">
-              <a href={`#stap-${step.n}`} className="w-[118px] shrink-0 rounded-lg border border-line bg-paper p-3 flex flex-col items-center text-center hover:border-accent">
+              <a
+                href={`#stap-${step.n}`}
+                className={`w-[122px] shrink-0 rounded-lg border bg-paper p-3 flex flex-col items-center text-center hover:border-accent ${blocked ? "border-amber-400" : "border-line"}`}
+              >
                 <span className="mono text-xs w-6 h-6 rounded-full bg-accent text-white flex items-center justify-center">{step.n}</span>
                 <span className="mt-2 text-sm font-medium leading-tight">{step.short}</span>
-                {isChain ? (
-                  <div className="mt-3 flex flex-col items-center gap-1">
-                    <Logo tool={tools[0]} st={toolStatus(tools[0], status)} size={24} />
-                    <span className="text-[10px] text-ink-faint">zoekketen</span>
-                    <div className="flex flex-col items-center gap-1">
-                      {tools.slice(1).map((t, k) => (
-                        <div key={t.name} className="flex flex-col items-center">
-                          {k > 0 && <span className="text-ink-faint text-[10px] leading-none">↓</span>}
-                          <Logo tool={t} st={toolStatus(t, status)} size={24} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-                    {tools.map((t) => (
-                      <Logo key={t.name} tool={t} st={toolStatus(t, status)} size={24} />
-                    ))}
+                <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+                  {rest.map((t) => (
+                    <Logo key={t.name} tool={t} size={24} />
+                  ))}
+                </div>
+                {isChain && (
+                  <div className="mt-2 flex flex-col items-center gap-0.5">
+                    {chain.length > 0 ? (
+                      <>
+                        <span className="text-[10px] text-ink-faint">zoekketen</span>
+                        {chain.map((t, k) => (
+                          <div key={t.name} className="flex flex-col items-center">
+                            {k > 0 && <span className="text-ink-faint text-[10px] leading-none">↓</span>}
+                            <Logo tool={t} size={24} />
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <span className="text-[11px] text-amber-800 leading-tight">geen zoekmachine: stap wordt overgeslagen</span>
+                    )}
                   </div>
                 )}
+                {!isChain && rest.length === 0 && <span className="mt-3 text-[11px] text-amber-800 leading-tight">niets actief</span>}
               </a>
-              {i < STEPS.length - 1 && <Arrow />}
+              {i < steps.length - 1 && <Arrow />}
             </div>
           );
         })}
         <Arrow />
-        <Endpoint title="Tot 10 vacatures" sub="score, argument, risico" />
+        <Endpoint title="Tot 10 vacatures" sub="score, argument, risico" kind="out" />
       </div>
     </div>
   );
@@ -209,8 +256,17 @@ function FlowMap({ status }: { status: Map<string, string> }) {
 
 type TestResult = { ok: boolean; count: number; ms: number; sample?: string[]; error?: string };
 
-export function AdminFlow({ settings }: { settings: SettingLite[] }) {
-  const status = new Map(settings.map((s) => [s.key, s.source]));
+export function AdminFlow({ settings, ai }: { settings: SettingLite[]; ai: AiInfo | null }) {
+  const byKey = new Map(settings.map((s) => [s.key, s]));
+  const ctx: Ctx = {
+    has: (key) => {
+      const src = byKey.get(key)?.source;
+      return src === "admin" || src === "env";
+    },
+    value: (key) => byKey.get(key)?.value,
+    ai,
+  };
+  const steps = buildSteps(ctx);
   const [tests, setTests] = useState<Record<string, TestResult | "busy">>({});
 
   async function runTest(tool: string) {
@@ -227,15 +283,14 @@ export function AdminFlow({ settings }: { settings: SettingLite[] }) {
   return (
     <section>
       <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Hoe een run loopt</h2>
-      <FlowMap status={status} />
+      <FlowMap steps={steps} />
       <p className="mt-2 mb-5 text-xs text-ink-faint">
-        <span className="inline-block w-2.5 h-2.5 rounded-sm ring-2 ring-green-600 align-middle mr-1" /> ingesteld ·{" "}
-        <span className="inline-block w-2.5 h-2.5 rounded-sm ring-2 ring-accent align-middle mr-1 ml-1" /> gratis zonder key ·{" "}
-        <span className="inline-block w-2.5 h-2.5 rounded-sm ring-1 ring-line align-middle mr-1 ml-1" /> niet ingesteld (grijs). Klik op een stap voor details en testknoppen.
+        De kaart toont enkel wat nu effectief draait, in de echte volgorde. <span className="inline-block w-2.5 h-2.5 rounded-sm ring-2 ring-green-600 align-middle mx-1" />
+        actief · <span className="inline-block w-2.5 h-2.5 rounded-sm ring-2 ring-accent align-middle mx-1" /> gratis zonder key. Klik op een stap voor details, testknoppen en wat je nog kan bijzetten.
       </p>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint mb-3">Details per stap</h3>
       <ol className="relative space-y-3">
-        {STEPS.map((step, i) => (
+        {steps.map((step, i) => (
           <li key={step.n} id={`stap-${step.n}`} className="relative scroll-mt-4">
             <div className="border border-line rounded-lg p-4 bg-paper">
               <div className="flex items-baseline gap-3">
@@ -245,16 +300,15 @@ export function AdminFlow({ settings }: { settings: SettingLite[] }) {
               <p className="text-sm text-ink-soft mt-1 ml-9">{step.what}</p>
               <div className="mt-3 ml-9 flex flex-wrap gap-2">
                 {step.tools.map((tool) => {
-                  const src = tool.key ? status.get(tool.key) ?? "none" : undefined;
-                  const on = tool.free || src === "admin" || src === "env";
+                  const st = toolStatus(tool);
                   const t = tool.test ? tests[tool.test] : undefined;
                   return (
-                    <span key={`${step.n}-${tool.name}`} className={`inline-flex items-center gap-2 text-xs rounded-full border px-2.5 py-1 ${on ? "border-line bg-paper" : "border-dashed border-line bg-paper-soft text-ink-faint"}`}>
-                      <Logo tool={tool} st={toolStatus(tool, status)} size={18} />
-                      <span className={on ? "text-ink" : ""}>{tool.name}</span>
+                    <span key={`${step.n}-${tool.name}`} className={`inline-flex items-center gap-2 text-xs rounded-full border px-2.5 py-1 ${st !== "off" ? "border-line bg-paper" : "border-dashed border-line bg-paper-soft text-ink-faint"}`}>
+                      <Logo tool={tool} size={18} />
+                      <span className={st !== "off" ? "text-ink" : ""}>{tool.name}</span>
                       {tool.note && <span className="text-ink-faint">· {tool.note}</span>}
-                      <span className="text-ink-faint">· {tool.free ? "gratis, altijd aan" : on ? (src === "env" ? "via Vercel" : "ingesteld") : "niet ingesteld"}</span>
-                      {tool.test && on && (
+                      <span className="text-ink-faint">· {st === "free" ? "gratis, altijd aan" : st === "on" ? "actief" : "niet actief"}</span>
+                      {tool.test && tool.key && ctx.has(tool.key) && (
                         <button type="button" onClick={() => runTest(tool.test!)} disabled={t === "busy"} className="text-accent hover:underline disabled:opacity-50">
                           {t === "busy" ? "test…" : "test"}
                         </button>
@@ -276,7 +330,7 @@ export function AdminFlow({ settings }: { settings: SettingLite[] }) {
                 </ul>
               )}
             </div>
-            {i < STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <div className="flex justify-start ml-7 h-3" aria-hidden>
                 <div className="w-px bg-line" />
               </div>
@@ -284,7 +338,6 @@ export function AdminFlow({ settings }: { settings: SettingLite[] }) {
           </li>
         ))}
       </ol>
-
     </section>
   );
 }

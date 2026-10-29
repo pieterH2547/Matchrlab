@@ -66,7 +66,7 @@ export function Composer({ busy, followup, onSubmit }: { busy: boolean; followup
               }
             }}
             rows={3}
-            placeholder={followup ? "Stel een vervolgvraag of verfijn de zoektocht…" : "Sleep een cv hierin of typ wat je zoekt…"}
+            placeholder={followup ? "Stel een vervolgvraag, of sleep een nieuw cv voor een nieuwe zoektocht…" : "Sleep een cv hierin of typ wat je zoekt…"}
             className="w-full resize-none bg-transparent px-3 py-3 pr-24 focus:outline-none"
           />
           <div className="absolute right-2 bottom-2 flex items-center gap-1">

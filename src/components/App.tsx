@@ -107,7 +107,10 @@ export function App({ me }: { me: string }) {
     const attachment = input.file ? { name: input.file.name, size: input.file.size } : undefined;
     setPendingUser({ text: input.text, attachment });
     try {
-      const created = await createRun({ text: input.text, file: input.file, threadId: threadId ?? undefined, profileOverride: input.profileOverride });
+      // Een nieuw cv of een gesprek zonder bruikbaar profiel = nieuwe run, geen vervolgvraag.
+      const latestRun = thread[thread.length - 1];
+      const continueThread = Boolean(threadId && !input.file && latestRun?.profile);
+      const created = await createRun({ text: input.text, file: input.file, threadId: continueThread ? threadId! : undefined, profileOverride: continueThread ? input.profileOverride : undefined });
       const data = await fetchThread(created.runId);
       setPendingUser(null);
       setThread(data.runs);
