@@ -254,8 +254,9 @@ type GoogleJobsData = { jobs_results?: GoogleJob[]; error?: string; serpapi_pagi
 export function googleJobsVariants(title: string, profile: Profile): Record<string, string>[] {
   const r = profile.region.trim();
   return [
-    { q: `${title} ${r}`.trim(), hl: "nl", gl: "be" },
+    // Getest: "operator Mechelen" in de zoekvraag geeft 0, met location="Mechelen, Belgium" wel resultaten.
     { q: title, location: `${r}, Belgium`, hl: "nl", gl: "be" },
+    { q: `${title} ${r}`.trim(), hl: "nl", gl: "be" },
     { q: `${title} ${r}`.trim(), hl: "en", gl: "be" },
     { q: `${title} Belgium`, hl: "en", gl: "be" },
   ];
