@@ -632,29 +632,69 @@ function Chips({ profile, editable, onEdit, autoOpen = false }: { profile: Profi
   );
 }
 
-/** Wat uit het cv gehaald werd, als aanpasbare zoekvelden. De zoektocht start pas na "Start zoektocht". */
+/** Wat uit het cv gehaald werd, als aanpasbare zoekvelden. Aanpassen in gewone taal of met de hand; de zoektocht start pas na "Start zoektocht". */
 function SearchFields({ profile, onStart }: { profile: Profile; onStart: (patch: Partial<Profile>) => Promise<void> }) {
   const j = (xs: string[] | undefined) => (xs ?? []).join(", ");
-  const [f, setF] = useState({
-    titles: j(profile.job_titles),
-    related: j(profile.related_titles),
-    variants: j(profile.title_variants),
-    region: profile.region,
-    radius: String(profile.radius_km),
-    years: String(profile.years_experience),
-    skills: j(profile.skills),
-    keywords: j(profile.skill_keywords),
-    sectors: j(profile.sectors),
-    companyTypes: j(profile.company_types),
-    exclusions: j(profile.exclusions),
+  const toForm = (p: Pick<Profile, "job_titles" | "region" | "radius_km" | "years_experience" | "skills" | "sectors" | "exclusions"> & Partial<Profile>) => ({
+    titles: j(p.job_titles),
+    related: j(p.related_titles),
+    variants: j(p.title_variants),
+    region: p.region,
+    radius: String(p.radius_km),
+    years: String(p.years_experience),
+    skills: j(p.skills),
+    keywords: j(p.skill_keywords),
+    sectors: j(p.sectors),
+    companyTypes: j(p.company_types),
+    exclusions: j(p.exclusions),
   });
+  const [f, setF] = useState(() => toForm(profile));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [say, setSay] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [changes, setChanges] = useState<string[]>([]);
+  const [notUnderstood, setNotUnderstood] = useState("");
+  const [changed, setChanged] = useState<Set<string>>(new Set());
   const split = (s: string) =>
     s
       .split(/[,;\n]/)
       .map((x) => x.trim())
       .filter(Boolean);
+  const values = () => ({
+    job_titles: split(f.titles),
+    related_titles: split(f.related),
+    title_variants: split(f.variants),
+    region: f.region.trim(),
+    radius_km: Number(f.radius) || profile.radius_km,
+    years_experience: Number(f.years) || 0,
+    skills: split(f.skills),
+    skill_keywords: split(f.keywords),
+    sectors: split(f.sectors),
+    company_types: split(f.companyTypes),
+    exclusions: split(f.exclusions),
+  });
+  async function refine() {
+    const instruction = say.trim();
+    if (!instruction || refining) return;
+    setRefining(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/refine", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fields: values(), instruction }) });
+      const data = (await res.json()) as { fields?: Profile; changes?: string[]; notUnderstood?: string; error?: string };
+      if (!res.ok || !data.fields) throw new Error(data.error ?? "Aanpassen lukte niet.");
+      const next = toForm(data.fields);
+      setChanged(new Set(Object.keys(next).filter((k) => next[k as keyof typeof next] !== f[k as keyof typeof f])));
+      setF(next);
+      setChanges(data.changes ?? []);
+      setNotUnderstood(data.notUnderstood ?? "");
+      setSay("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefining(false);
+    }
+  }
   async function start() {
     if (!f.region.trim() || /^(vlaanderen|belgi[eë]|belgium|wallonie)$/i.test(f.region.trim())) {
       setError("Vul een gemeente in als regio, bv. Mechelen.");
@@ -667,45 +707,66 @@ function SearchFields({ profile, onStart }: { profile: Profile; onStart: (patch:
     setError(null);
     setBusy(true);
     try {
-      await onStart({
-        job_titles: split(f.titles),
-        related_titles: split(f.related),
-        title_variants: split(f.variants),
-        region: f.region.trim(),
-        radius_km: Number(f.radius) || profile.radius_km,
-        years_experience: Number(f.years) || 0,
-        skills: split(f.skills),
-        skill_keywords: split(f.keywords),
-        sectors: split(f.sectors),
-        company_types: split(f.companyTypes),
-        exclusions: split(f.exclusions),
-      });
+      await onStart(values());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
   }
-  const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
+  const set = (k: keyof typeof f) => (v: string) => {
+    setF({ ...f, [k]: v });
+    if (changed.has(k)) setChanged(new Set([...changed].filter((x) => x !== k)));
+  };
+  const field = (label: string, k: keyof typeof f) => <Field label={label} value={f[k]} onChange={set(k)} highlight={changed.has(k)} />;
   return (
-    <Section title="Zoekvelden · uit het cv gehaald, pas aan waar nodig">
-      <div className="pt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2">
-        <Field label="Functietitels" value={f.titles} onChange={set("titles")} />
-        <Field label="Verwante functies" value={f.related} onChange={set("related")} />
-        <Field label="Ook zoeken als (EN/FR)" value={f.variants} onChange={set("variants")} />
-        <div className="grid grid-cols-[1fr_90px_90px] gap-3">
-          <Field label="Regio (gemeente)" value={f.region} onChange={set("region")} />
-          <Field label="Straal km" value={f.radius} onChange={set("radius")} />
-          <Field label="Jaren" value={f.years} onChange={set("years")} />
+    <Section title="Zoekvelden · uit het cv gehaald">
+      <div className="pt-3">
+        <label className="block text-sm text-ink-soft mb-1">Pas aan in gewone taal</label>
+        <div className="flex gap-2">
+          <textarea
+            value={say}
+            onChange={(e) => setSay(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void refine();
+              }
+            }}
+            rows={2}
+            placeholder="bv. ook als teamleider, rond Gent, max 40 km, geen ploegenwerk of interim"
+            className="flex-1 resize-none border border-line rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:border-accent"
+          />
+          <button type="button" onClick={refine} disabled={refining || !say.trim()} className="self-stretch rounded-lg px-3 text-sm font-medium border border-line text-navy hover:border-accent disabled:opacity-40">
+            {refining ? "Bezig…" : "Toepassen"}
+          </button>
         </div>
-        <Field label="Vaardigheden" value={f.skills} onChange={set("skills")} />
-        <Field label="Kerntaken" value={f.keywords} onChange={set("keywords")} />
-        <Field label="Sectoren" value={f.sectors} onChange={set("sectors")} />
-        <Field label="Soorten werkgevers" value={f.companyTypes} onChange={set("companyTypes")} />
-        <Field label="Uitsluiten" value={f.exclusions} onChange={set("exclusions")} />
+        {(changes.length > 0 || notUnderstood) && (
+          <div className="mt-2 text-xs text-ink-soft space-y-0.5">
+            {changes.map((c, i) => (
+              <div key={i}>✓ {c}</div>
+            ))}
+            {notUnderstood && <div className="text-gold">Niet omgezet: {notUnderstood}</div>}
+          </div>
+        )}
       </div>
-      <p className="mt-2 text-xs text-ink-faint">Meerdere waarden scheiden met een komma.</p>
+      <div className="mt-4 grid gap-x-4 gap-y-3 sm:grid-cols-2">
+        {field("Functietitels", "titles")}
+        {field("Verwante functies", "related")}
+        {field("Ook zoeken als (EN/FR)", "variants")}
+        <div className="grid grid-cols-[1fr_90px_90px] gap-3">
+          {field("Regio (gemeente)", "region")}
+          {field("Straal km", "radius")}
+          {field("Jaren", "years")}
+        </div>
+        {field("Vaardigheden", "skills")}
+        {field("Kerntaken", "keywords")}
+        {field("Sectoren", "sectors")}
+        {field("Soorten werkgevers", "companyTypes")}
+        {field("Uitsluiten", "exclusions")}
+      </div>
+      <p className="mt-2 text-xs text-ink-faint">Je kan de velden ook rechtstreeks aanpassen; meerdere waarden scheiden met een komma.</p>
       <div className="mt-3 flex items-center gap-3">
-        <button type="button" onClick={start} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-medium bg-navy text-white hover:bg-navy-2 disabled:opacity-50">
+        <button type="button" onClick={start} disabled={busy || refining} className="rounded-lg px-4 py-2 text-sm font-medium bg-navy text-white hover:bg-navy-2 disabled:opacity-50">
           {busy ? "Zoektocht start…" : "Start zoektocht"}
         </button>
         {error && <span className="text-sm text-err">{error}</span>}
@@ -714,11 +775,18 @@ function SearchFields({ profile, onStart }: { profile: Profile; onStart: (patch:
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Field({ label, value, onChange, highlight }: { label: string; value: string; onChange: (v: string) => void; highlight?: boolean }) {
   return (
     <label className="block text-sm">
-      <span className="block text-ink-soft mb-1">{label}</span>
-      <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full border border-line rounded-md px-2.5 py-1.5 focus:outline-none focus:border-accent" />
+      <span className="block text-ink-soft mb-1">
+        {label}
+        {highlight && <span className="ml-1.5 text-[11px] text-accent">aangepast</span>}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full border rounded-md px-2.5 py-1.5 focus:outline-none focus:border-accent ${highlight ? "border-accent bg-accent/5" : "border-line"}`}
+      />
     </label>
   );
 }
