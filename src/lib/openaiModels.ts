@@ -45,12 +45,29 @@ export function pickLightModel(ids: string[]): string | null {
   return light[0];
 }
 
+/** Het nieuwste volwaardige model (geen mini/luna/nano), voor de kwaliteitsstand 'hoog'. */
+export function pickStrongModel(ids: string[]): string | null {
+  const strong = ids.filter((id) => /^gpt-\d+(\.\d+)?$/.test(id));
+  if (!strong.length) return null;
+  strong.sort((a, b) => version(b) - version(a));
+  return strong[0];
+}
+
+/** Kwaliteitsstand: 'hoog' = sterker model voor de beoordeling en het AI-zoeken (beter, maar duurder). */
+export async function qualityHigh(): Promise<boolean> {
+  return (await getSetting("QUALITY_MODE")) === "hoog";
+}
+
 /** Het model dat Matchr effectief gebruikt voor een taak. */
 export async function resolveOpenAIModel(task: "cheap" | "scoring"): Promise<string> {
   const valid = (v: string | undefined) => (v && /^[a-z0-9][a-z0-9.:_-]{1,63}$/i.test(v) && !/^(sk-|fc-|tvly-)/.test(v) ? v : undefined);
   const chosen = valid(await getSetting(task === "scoring" ? "OPENAI_MODEL_SCORING" : "OPENAI_MODEL_CHEAP"));
   if (chosen) return chosen;
   if (task === "scoring") {
+    if (await qualityHigh()) {
+      const strong = pickStrongModel(await listOpenAIModels());
+      if (strong) return strong;
+    }
     const cheap = valid(await getSetting("OPENAI_MODEL_CHEAP"));
     if (cheap) return cheap;
   }

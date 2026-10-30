@@ -13,3 +13,11 @@ describe("pickLightModel", () => {
     expect(pickLightModel(["gpt-5", "gpt-6-astra"])).toBeNull();
   });
 });
+
+import { pickStrongModel } from "@/lib/openaiModels";
+describe("sterkste model voor kwaliteit 'hoog'", () => {
+  it("nieuwste volwaardige model, geen mini/nano", () => {
+    expect(pickStrongModel(["gpt-5.4-mini", "gpt-5.4", "gpt-5.5", "gpt-5.5-nano", "gpt-4.1"])).toBe("gpt-5.5");
+    expect(pickStrongModel(["gpt-5.4-mini"])).toBeNull();
+  });
+});

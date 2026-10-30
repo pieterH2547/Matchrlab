@@ -24,7 +24,7 @@ export const SECRET_KEYS = [
   "JINA_API_KEY",
   "FIRECRAWL_API_KEY",
 ] as const;
-export const CONFIG_KEYS = ["MIN_SCORE", "AI_PROVIDER", "OPENAI_MODEL_CHEAP", "OPENAI_MODEL_SCORING", "SEARCH_PROVIDER", "ANTHROPIC_MONTHLY_BUDGET_EUR", "OPENAI_WEBSEARCH_ENABLED", "OPENAI_WEBSEARCH_ROUNDS", "OPENAI_WEBSEARCH_MAX_EUR", "OPENAI_WEBSEARCH_MODEL"] as const;
+export const CONFIG_KEYS = ["MIN_SCORE", "AI_PROVIDER", "OPENAI_MODEL_CHEAP", "OPENAI_MODEL_SCORING", "SEARCH_PROVIDER", "ANTHROPIC_MONTHLY_BUDGET_EUR", "OPENAI_WEBSEARCH_ENABLED", "OPENAI_WEBSEARCH_ROUNDS", "OPENAI_WEBSEARCH_MAX_EUR", "OPENAI_WEBSEARCH_MODEL", "QUALITY_MODE"] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
@@ -49,6 +49,7 @@ export const SETTING_INFO: Record<SettingKey, { label: string; help: string; url
   JOOBLE_API_KEY: { label: "Jooble API-key", help: "Gratis vacature-API. Vraag een key aan voor België (be.jooble.org).", url: "https://be.jooble.org/api/about" },
   FIRECRAWL_API_KEY: { label: "Firecrawl API-key", help: "Gratis 1.000 credits per maand. Leest jobsites die Jina niet krijgt.", url: "https://www.firecrawl.dev/app/api-keys" },
   JINA_API_KEY: { label: "Jina Reader API-key", help: "Optioneel; werkt ook zonder, met lagere limieten.", url: "https://jina.ai/reader" },
+  QUALITY_MODE: { label: "Kwaliteit", help: "standaard = licht model (snel, goedkoop). hoog = sterker model voor beoordeling en AI-zoeken (beter, duurder).", options: ["standaard", "hoog"] },
   OPENAI_WEBSEARCH_ENABLED: { label: "OpenAI Web Search", help: "1 = aan (standaard), 0 = uit. Gebruikt de gedeelde OpenAI-key.", options: ["1", "0"] },
   OPENAI_WEBSEARCH_ROUNDS: { label: "Zoekrondes OpenAI Web Search", help: "Max aantal iteratieve zoekrondes per run (1-5). Standaard 3.", options: ["1", "2", "3", "4", "5"] },
   OPENAI_WEBSEARCH_MAX_EUR: { label: "Max zoekkosten per run (€)", help: "Boven dit bedrag start geen nieuwe zoekronde. Standaard 0,15." },

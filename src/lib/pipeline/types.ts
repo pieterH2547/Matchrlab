@@ -118,7 +118,7 @@ export type NormalizedJob = {
 export type StepStatus = "waiting" | "running" | "done" | "skipped" | "error";
 
 export type StepState = {
-  key: "profile" | "jobboards" | "first" | "discover" | "crawl" | "score" | "signals";
+  key: "profile" | "jobboards" | "first" | "ai" | "discover" | "crawl" | "score" | "signals";
   label: string;
   status: StepStatus;
   /** Korte toelichting met aantallen, bv. "23 / 58 · 9 met open vacatures". */
@@ -160,7 +160,7 @@ export type RunState = {
   scoreCache?: Record<string, import("./score").RawScore>;
   verifyCache?: Record<string, { status: "actief" | "gesloten" | "niet geverifieerd"; reason: string }>;
   /** Fast Search (eerste matches) of Deep Search (lokale KMO's, websites, AI). */
-  phase?: "fast" | "deep";
+  phase?: "fast" | "ai" | "deep";
   /** Voorlopige lijst uit de vacature-index, nog niet beoordeeld (tot de eerste matches er zijn). */
   preview?: { title: string; company: string; location: string; url: string }[];
   /** AI-zoekplan voor Boolean X-ray (Deep Search). */
@@ -359,8 +359,9 @@ export const STEP_LABELS: Record<StepState["key"], string> = {
   profile: "Cv verwerkt",
   jobboards: "Fast Search · vacaturebronnen",
   first: "Fast Search · eerste matches",
+  ai: "AI-zoeken op het web",
   discover: "Deep Search · lokale werkgevers",
-  crawl: "Deep Search · websites, ATS-feeds en AI-zoeken",
+  crawl: "Deep Search · websites en ATS-feeds",
   score: "Alles samen beoordelen",
   signals: "Hiring-signalen en acties",
 };

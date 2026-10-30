@@ -311,20 +311,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           state = setStep(state, "jobboards", { status: "done", detail: `${state.steps.find((s) => s.key === "jobboards")?.detail ?? ""} · OpenAI Web Search loopt` });
           const ai = await aiRun;
           meter.eur += ai.result.costEur;
-          state.aiDone = true;
-          state.jobIds = [...(state.jobIds ?? []), ...ai.stored.map((j) => j.id)];
-          const f = state.stats?.funnel ?? {};
-          state.stats = {
-            ...(state.stats ?? {}),
-            funnel: {
-              ...f,
-              found: (f.found ?? 0) + ai.result.jobs.length,
-              sources: { ...(f.sources ?? {}), openai_web: { queries: ai.result.searches, raw: ai.result.raw, kept: ai.result.jobs.length, error: ai.result.error, skipped: ai.result.skipped } },
-              ai: { rounds: ai.result.rounds, searches: ai.result.searches, raw: ai.result.raw, kept: ai.result.jobs.length, costEur: ai.result.costEur, durationMs: ai.result.durationMs, model: ai.result.model, error: ai.result.error, skipped: ai.result.skipped },
-            },
-          };
-          state = timed(state, "aiSearch", ai.result.durationMs);
-          state.stats = { ...(state.stats ?? {}), funnel: { ...(state.stats?.funnel ?? {}), xray: ai.xray } };
+          state = applyAi(state, ai);
         }
         state = timed(state, "crawl", Date.now() - started, true);
         await addCost(runId, meter);
@@ -340,9 +327,23 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
       }
       case "score": {
         const profile = run.profile!;
-        const fast = state.phase === "fast";
+        // Fasen: fast (vacaturebanken) → ai (OpenAI Web Search + X-ray, zoals ChatGPT) → deep (lokale werkgevers, websites).
+        const aiPhase = state.phase === "ai";
+        const fast = state.phase === "fast" || aiPhase;
         const tScore = Date.now();
-        state = setStep(state, fast ? "first" : "score", { status: "running", detail: fast ? "beste vacatures uit de bronnen controleren en scoren" : "alles samenvoegen" });
+        let aiJobIds = new Set<number>();
+        if (aiPhase && !state.aiDone) {
+          state = setStep(state, "ai", { status: "running", detail: "AI zoekt op het web (vacaturesites, bedrijfssites, LinkedIn Jobs via zoekresultaten)" });
+          emit({ type: "steps", steps: state.steps });
+          const ai = await runAiSearch(profile, state.slowSources ?? [], state.xrayPlan ?? null, meter);
+          meter.eur += ai.result.costEur;
+          state = applyAi(state, ai);
+          aiJobIds = new Set(ai.stored.map((j) => j.id));
+        }
+        state = setStep(state, aiPhase ? "ai" : fast ? "first" : "score", {
+          status: "running",
+          detail: aiPhase ? `${aiJobIds.size} nieuwe vacatures van het AI-zoeken controleren en scoren` : fast ? "beste vacatures uit de bronnen controleren en scoren" : "alles samenvoegen",
+        });
         emit({ type: "steps", steps: state.steps });
         const funnel: Funnel = { ...(state.stats?.funnel ?? {}) };
         const ids = Array.from(new Set(state.jobIds ?? []));
@@ -362,7 +363,11 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         let shortlistRaw: Job[];
         if (fast) {
           // Top 12 + alles wat voor dit profiel al een score heeft (kost niets en verdwijnt dan niet uit beeld).
-          const top = quickShortlist(profile, dedupedJobs, 12);
+          // AI-fase: de nieuwe AI-vacatures eerst (die zijn al gericht gezocht), aangevuld met de beste andere.
+          const fromAi = dedupedJobs.filter((j) => aiJobIds.has(j.id));
+          const top = aiPhase
+            ? [...quickShortlist(profile, fromAi, 12), ...quickShortlist(profile, dedupedJobs.filter((j) => !aiJobIds.has(j.id)), 8)]
+            : quickShortlist(profile, dedupedJobs, 12);
           const keys = new Map(dedupedJobs.map((j) => [j.id, scoreKey(profile, j.contentHash ?? contentHash(j))]));
           const known = await readCache<RawScore>(Array.from(keys.values()), 14);
           const already = dedupedJobs.filter((j) => known.has(keys.get(j.id)!) && !top.includes(j));
@@ -531,12 +536,30 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
             );
         }
 
-        if (fast) {
-          // Eerste matches staan er; Deep Search (lokale werkgevers, websites, OpenAI Web Search) gaat verder.
+        if (fast && !aiPhase) {
+          // Eerste matches staan er; meteen daarna het AI-zoeken (zoals ChatGPT), dan Deep Search.
           const firstMs = Date.now() - (state.stats?.startedAt ?? run.createdAt.getTime());
           state = setStep(state, "first", { status: "done", detail: `${result.scored.length} matches uit ${dedupedJobs.length} vacatures · na ${Math.round(firstMs / 1000)} s` });
           state = timed(state, "firstResult", firstMs);
           state = timed(state, "scoreFastTotal", Date.now() - tScore);
+          state = {
+            ...state,
+            phase: "ai",
+            intro: result.scored.length
+              ? `${result.intro} De AI zoekt nu verder op het web; daarna lokale werkgevers en hun websites.`
+              : "Nog geen match uit de vacaturebronnen. De AI zoekt nu verder op het web; daarna lokale werkgevers en hun websites.",
+            followups: [],
+            stats: { ...(state.stats ?? {}), funnel },
+          };
+          await saveRun(runId, { status: "score", state });
+          await addCost(runId, meter);
+          emit({ type: "status", status: "score", state });
+          return "score";
+        }
+        if (aiPhase) {
+          const ms = Date.now() - (state.stats?.startedAt ?? run.createdAt.getTime());
+          state = setStep(state, "ai", { status: "done", detail: `${aiJobIds.size} vacatures via AI-zoeken · ${result.scored.length} matches in totaal · na ${Math.round(ms / 1000)} s` });
+          state = timed(state, "aiResult", ms);
           state = {
             ...state,
             phase: "deep",
@@ -725,6 +748,28 @@ async function runXray(profile: Profile, plan: XrayItem[] | null, meter: CostMet
   const w2 = await runWebQueries(orderByYield(rest, hits, 4), 4);
   for (const x of w2.perQuery) hits[x.query.intent] = (hits[x.query.intent] ?? 0) + x.hits;
   return { jobs: [...w1.jobs, ...w2.jobs], stats: { planned: queries.length, run: w1.perQuery.length + w2.perQuery.length, hits } };
+}
+
+/** Resultaat van het AI-zoeken (OpenAI Web Search, X-ray, late bronnen) in de run-toestand verwerken. */
+function applyAi(state: RunState, ai: Awaited<ReturnType<typeof runAiSearch>>): RunState {
+  const f = state.stats?.funnel ?? {};
+  let next: RunState = {
+    ...state,
+    aiDone: true,
+    jobIds: [...(state.jobIds ?? []), ...ai.stored.map((j) => j.id)],
+    stats: {
+      ...(state.stats ?? {}),
+      funnel: {
+        ...f,
+        found: (f.found ?? 0) + ai.result.jobs.length,
+        sources: { ...(f.sources ?? {}), openai_web: { queries: ai.result.searches, raw: ai.result.raw, kept: ai.result.jobs.length, error: ai.result.error, skipped: ai.result.skipped } },
+        ai: { rounds: ai.result.rounds, searches: ai.result.searches, raw: ai.result.raw, kept: ai.result.jobs.length, costEur: ai.result.costEur, durationMs: ai.result.durationMs, model: ai.result.model, error: ai.result.error, skipped: ai.result.skipped },
+        xray: ai.xray,
+      },
+    },
+  };
+  next = timed(next, "aiSearch", ai.result.durationMs);
+  return next;
 }
 
 /** OpenAI Web Search voor Deep Search: resultaten door dezelfde dedup en voorfilter, dan bewaren. */

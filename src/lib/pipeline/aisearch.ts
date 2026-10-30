@@ -11,14 +11,14 @@
  */
 import { z } from "zod";
 import { getSetting } from "@/lib/settings";
-import { resolveOpenAIModel } from "@/lib/openaiModels";
+import { listOpenAIModels, pickStrongModel, qualityHigh, resolveOpenAIModel } from "@/lib/openaiModels";
 import { fetchRaw } from "@/lib/fetch";
 import { redactSecrets } from "@/lib/redact";
 import { countCall, noteFailure } from "@/lib/usage";
 import { isAgencyDomain } from "@/lib/blocklist";
 import type { NormalizedJob, Profile } from "./types";
 
-export type AiSearchConfig = { enabled: boolean; rounds: number; maxCostEur: number; model: string | null; hasKey: boolean };
+export type AiSearchConfig = { enabled: boolean; rounds: number; maxCostEur: number; model: string | null; hasKey: boolean; high?: boolean };
 
 export async function aiSearchConfig(): Promise<AiSearchConfig> {
   const key = await getSetting("OPENAI_API_KEY");
@@ -26,11 +26,15 @@ export async function aiSearchConfig(): Promise<AiSearchConfig> {
   const rounds = Number(await getSetting("OPENAI_WEBSEARCH_ROUNDS"));
   const maxCost = Number(await getSetting("OPENAI_WEBSEARCH_MAX_EUR"));
   const chosen = (await getSetting("OPENAI_WEBSEARCH_MODEL"))?.trim();
-  const model = key ? (chosen && /^[a-z0-9][a-z0-9.:_-]{1,63}$/i.test(chosen) && !/^sk-/.test(chosen) ? chosen : await resolveOpenAIModel("cheap").catch(() => null)) : null;
+  // Kwaliteit 'hoog': het sterkste beschikbare model, zoals ChatGPT zelf (beter zoeken en oordelen, duurder).
+  const high = await qualityHigh().catch(() => false);
+  const strong = high && key ? pickStrongModel(await listOpenAIModels()) : null;
+  const model = key ? (chosen && /^[a-z0-9][a-z0-9.:_-]{1,63}$/i.test(chosen) && !/^sk-/.test(chosen) ? chosen : strong ?? (await resolveOpenAIModel("cheap").catch(() => null))) : null;
   return {
+    high,
     enabled: enabledRaw !== "0" && Boolean(key),
     rounds: Number.isFinite(rounds) && rounds >= 1 && rounds <= 5 ? Math.round(rounds) : 3,
-    maxCostEur: Number.isFinite(maxCost) && maxCost > 0 ? Math.min(maxCost, 2) : 0.15,
+    maxCostEur: Number.isFinite(maxCost) && maxCost > 0 ? Math.min(maxCost, 2) : high ? 0.6 : 0.15,
     model,
     hasKey: Boolean(key),
   };
@@ -253,7 +257,7 @@ export async function searchOpenAIJobs(
       model: cfg.model,
       instructions: INSTRUCTIONS,
       input: `Kandidaatprofiel:\n${JSON.stringify(profileForSearch(profile), null, 1)}\n\n${steer}`,
-      tools: [{ type: "web_search", user_location: { type: "approximate", country: "BE", timezone: "Europe/Brussels" } }],
+      tools: [{ type: "web_search", search_context_size: cfg.high ? "high" : "medium", user_location: { type: "approximate", country: "BE", timezone: "Europe/Brussels" } }],
       tool_choice: "required",
       text: { format: { type: "json_schema", name: "vacatures", strict: true, schema: JSON_SCHEMA } },
       max_output_tokens: 6000,

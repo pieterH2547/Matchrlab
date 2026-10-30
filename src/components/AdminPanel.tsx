@@ -67,6 +67,7 @@ export function AdminPanel({ me }: { me: string }) {
         </p>
       </section>
       <ThresholdLine current={byKey.get("MIN_SCORE")?.value} onChanged={load} />
+      <QualityLine current={byKey.get("QUALITY_MODE")?.value} onChanged={load} />
       <WebSearchSection byKey={byKey} model={ai?.effective.cheap} onChanged={load} />
       <PerfSection />
       <AdminFlow settings={settings} ai={ai} />
@@ -218,6 +219,32 @@ function WebSearchSection({ byKey, model, onChanged }: { byKey: Map<string, Sett
             ) : null}
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+/** Kwaliteit: standaard (licht model) of hoog (sterkste OpenAI-model voor beoordeling en AI-zoeken, zoals ChatGPT). */
+function QualityLine({ current, onChanged }: { current?: string; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const value = current === "hoog" ? "hoog" : "standaard";
+  async function change(v: string) {
+    setBusy(true);
+    await fetch("/api/admin/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "QUALITY_MODE", value: v }) });
+    setBusy(false);
+    await onChanged();
+  }
+  return (
+    <section>
+      <div className="border border-line rounded-xl bg-paper p-4 flex flex-wrap items-center gap-3">
+        <label htmlFor="quality" className="font-medium">
+          Kwaliteit
+        </label>
+        <select id="quality" value={value} disabled={busy} onChange={(e) => change(e.target.value)} className="border border-line rounded-md px-2 py-1.5 text-sm bg-white">
+          <option value="standaard">Standaard · snel en goedkoop</option>
+          <option value="hoog">Hoog · sterkste model, zoals ChatGPT</option>
+        </select>
+        <span className="text-sm text-ink-soft">Hoog: betere zoekvragen en beoordeling, maar ±3 tot 5 keer duurder per run.</span>
       </div>
     </section>
   );
