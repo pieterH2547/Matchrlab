@@ -198,6 +198,14 @@ const BLOCKED_FRAGMENTS = ["interim", "jobs", "vacature", "job-", "jobboard", "r
  */
 const INTERMEDIARY_STRONG = /\b(recruitment|recruiting|rekrutering|werving\s*(en|&)\s*selectie|headhunt\w*|executive search|interim(kantoor|bureau)?|uitzend\w*|staffing|detachering|outsourcing|hr[- ]?(consultancy|consulting|dienstverlen\w+|partner)|consultancy|consulting|payroll\w*|sourcing partner|selectiekantoor|talent acquisition)\b/i;
 
+/**
+ * Werkgever uit een officieel register (bv. FSMA-verzekeringsmakelaar): een gereglementeerde eindwerkgever.
+ * Zijn naam of homepage ("X Consulting", "verzekeringsbemiddeling") mag hem nooit als HR-tussenpersoon laten wegvallen.
+ */
+export function isTrustedEmployer(j: { raw?: unknown } | null | undefined): boolean {
+  return Boolean(((j?.raw ?? {}) as { trustedEmployer?: boolean }).trustedEmployer);
+}
+
 /** Bedrijfsnaam of vacature-url van een tussenpersoon (interim, recruitment, consultancy, detachering)? */
 /** Merknamen van bekende kantoren, afgeleid uit hun domein (randstad, adecco, tempoteam, …). */
 const AGENCY_BRANDS = Array.from(

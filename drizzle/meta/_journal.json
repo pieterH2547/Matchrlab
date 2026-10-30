@@ -99,6 +99,13 @@
       "when": 1793307810771,
       "tag": "0013_perf_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793366482082,
+      "tag": "0014_sector_registry",
+      "breakpoints": true
     }
   ]
 }

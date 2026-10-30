@@ -92,7 +92,43 @@ export const companies = pgTable("companies", {
   contactName: text("contact_name"),
   /** Hoe Matchr dit bedrijf vond: maps (lokaal), web, of eerder bekend in de buurt (lokaal-db). */
   discoveredVia: text("discovered_via"),
+  /** Sectorbeheer: sector, ondernemingsnummer (10 cijfers), bron van het register en importdatum. */
+  sector: text("sector"),
+  enterpriseNumber: text("enterprise_number"),
+  registrySource: text("registry_source"),
+  importedAt: timestamp("imported_at", { withTimezone: true }),
+  /** Wachtrij voor (her)controle: queued | ok | fout | geen_jobpagina; met laatste fout en volgende controle. */
+  crawlStatus: text("crawl_status"),
+  crawlError: text("crawl_error"),
+  nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
 });
+
+/**
+ * Registerinschrijvingen (bv. FSMA-verzekeringsmakelaars) vóór ze aan een website gekoppeld zijn.
+ * Ontdubbeld op ondernemingsnummer; zonder nummer (bv. uit Google Maps) op sector + naam + gemeente.
+ */
+export const registryEntries = pgTable(
+  "registry_entries",
+  {
+    id: serial("id").primaryKey(),
+    sector: text("sector").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    enterpriseNumber: text("enterprise_number"),
+    name: text("name").notNull(),
+    address: text("address"),
+    postcode: text("postcode"),
+    municipality: text("municipality"),
+    website: text("website"),
+    source: text("source").notNull(),
+    importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+    /** nieuw | gekoppeld | geen_website | fout */
+    status: text("status").notNull().default("nieuw"),
+    error: text("error"),
+    companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("registry_dedupe_idx").on(t.dedupeKey), index("registry_sector_idx").on(t.sector, t.status)],
+);
 
 /** Cache van betalende zoekopdrachten (bv. Google Maps via Serper): dezelfde vraag niet opnieuw betalen. */
 export const searchCache = pgTable("search_cache", {

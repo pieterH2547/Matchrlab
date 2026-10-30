@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AdminFlow, type AiInfo } from "./AdminFlow";
+import { SectorAdmin } from "./SectorAdmin";
 
 type Setting = { key: string; source: "admin" | "env" | "none"; value?: string; updatedAt?: string; updatedBy?: string | null };
 
@@ -69,6 +70,7 @@ export function AdminPanel({ me }: { me: string }) {
       <ThresholdLine current={byKey.get("MIN_SCORE")?.value} onChanged={load} />
       <QualityLine current={byKey.get("QUALITY_MODE")?.value} onChanged={load} />
       <WebSearchSection byKey={byKey} model={ai?.effective.cheap} onChanged={load} />
+      <SectorAdmin me={me} />
       <PerfSection />
       <AdminFlow settings={settings} ai={ai} />
     </div>

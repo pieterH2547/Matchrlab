@@ -3,12 +3,12 @@
  * Onbekend contract of onbekende werkgever is géén uitsluiting: die vacatures blijven, met het label
  * 'te verifiëren', en worden nooit als bevestigde vaste vacature getoond.
  */
-import { isIntermediaryCompany } from "@/lib/blocklist";
+import { isIntermediaryCompany, isTrustedEmployer } from "@/lib/blocklist";
 import { withinProfileRadius } from "@/lib/geo";
 import type { Profile } from "./types";
 
 export type ScoredLike = {
-  job: { id: number; url: string; location: string | null; source: string; companyId?: number | null };
+  job: { id: number; url: string; location: string | null; source: string; companyId?: number | null; raw?: unknown };
   score: number;
   contract: "vast" | "tijdelijk" | "interim" | "freelance" | "onbekend";
   employerStatus: "rechtstreeks" | "tussenpersoon" | "onbekend";
@@ -45,7 +45,7 @@ export function toVerifyFlags(s: ScoredLike, companyName: string, profile?: Prof
 
 export function rejectReason(s: ScoredLike, companyName: string, profile: Profile, threshold: number): keyof FilterReasons | null {
   if (s.contract === "tijdelijk" || s.contract === "interim" || s.contract === "freelance") return "contract_tijdelijk";
-  if (s.employerStatus === "tussenpersoon" || isIntermediaryCompany(companyName, s.job.url)) return "tussenpersoon";
+  if (!isTrustedEmployer(s.job) && (s.employerStatus === "tussenpersoon" || isIntermediaryCompany(companyName, s.job.url))) return "tussenpersoon";
   if (s.hardBlocker) return "harde_eis";
   // Onze gemeentelijst beslist eerst (bevestigd binnen of buiten). Kent ze de plaats niet, dan de schatting
   // van de AI (+5 km marge). Kan niemand de afstand bepalen, dan blijft de vacature met 'locatie te verifiëren'.

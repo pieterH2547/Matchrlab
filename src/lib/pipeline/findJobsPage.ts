@@ -60,7 +60,7 @@ function companyNameFromTitle(title: string, domain: string): string {
   return domain.split(".")[0].replace(/-/g, " ");
 }
 
-export async function findJobsPage(domain: string, meter: CostMeter, opts: { allowBrave?: boolean } = {}): Promise<JobsPageResult> {
+export async function findJobsPage(domain: string, meter: CostMeter, opts: { allowBrave?: boolean; trusted?: boolean } = {}): Promise<JobsPageResult> {
   const homeUrl = `https://${domain}/`;
   // Homepage uit de cache (7 dagen, mét links) als die er is: geen nieuwe request per kandidaat.
   const home = await fetchPage(homeUrl);
@@ -73,7 +73,8 @@ export async function findJobsPage(domain: string, meter: CostMeter, opts: { all
   }
 
   // Tussenpersonen (recruitment, interim, consultancy, detachering) zijn geen werkgevers: overslaan.
-  const intermediary = looksLikeIntermediary(titleMatch?.[1] ?? "", home.text);
+  // Behalve bij werkgevers uit een officieel register (verzekeringsmakelaars praten over 'bemiddeling').
+  const intermediary = opts.trusted ? { yes: false as const, reason: undefined } : looksLikeIntermediary(titleMatch?.[1] ?? "", home.text);
   if (intermediary.yes) {
     return { kind: "none", companyName, reason: `tussenpersoon (${intermediary.reason})`, braveUsed: false };
   }

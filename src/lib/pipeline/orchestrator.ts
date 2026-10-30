@@ -923,9 +923,11 @@ async function knownJobsPage(domain: string): Promise<JobsPageResult | null> {
 }
 
 export async function crawlDomain(domain: string, profile: Profile | null, meter: CostMeter, allowBrave: boolean): Promise<CrawlOutcome> {
+  // Werkgever uit een officieel register (sector gezet): nooit als tussenpersoon behandelen.
+  const trusted = Boolean((await db().select({ sector: schema.companies.sector }).from(schema.companies).where(eq(schema.companies.domain, domain)).limit(1))[0]?.sector);
   const known = await knownJobsPage(domain).catch(() => null);
   if (known) countCall("jobpagina_hergebruikt");
-  const found = known ?? (await findJobsPage(domain, meter, { allowBrave }));
+  const found = known ?? (await findJobsPage(domain, meter, { allowBrave, trusted }));
   const base = { domain, name: found.companyName, lastCrawledAt: new Date() };
   let normalized: NormalizedJob[] = [];
   let atsValue: Company["ats"] = "unknown";
@@ -976,7 +978,8 @@ export async function crawlDomain(domain: string, profile: Profile | null, meter
   )[0];
 
   // Zonder profiel (geplande herinventarisatie): alles bewaren behalve tussenpersonen.
-  const filtered = profile ? prefilterJobs(normalized, profile) : normalized.filter((j) => !isIntermediaryCompany(j.companyName, j.url));
+  if (trusted) normalized = normalized.map((j) => ({ ...j, raw: { ...((j.raw as Record<string, unknown>) ?? {}), trustedEmployer: true } }));
+  const filtered = profile ? prefilterJobs(normalized, profile) : normalized.filter((j) => trusted || !isIntermediaryCompany(j.companyName, j.url));
   const stored = await upsertJobs(filtered.map((j) => ({ ...j, companyId: company.id })));
   // Vacatures die niet meer op de jobpagina staan: als gesloten markeren in de index (enkel als de pagina wel vacatures gaf).
   if (normalized.length > 0) {

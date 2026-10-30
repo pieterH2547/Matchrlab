@@ -3,6 +3,7 @@ import { and, asc, isNotNull, lt, ne, eq, or, isNull } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { crawlDomain } from "@/lib/pipeline/orchestrator";
 import { CostMeter } from "@/lib/llm";
+import { crawlQueue, linkNewEntries } from "@/lib/sector/process";
 
 /**
  * Geplande herinventarisatie van gekende werkgeverssites (Vercel Cron, dagelijks), los van de zoekruns.
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
   const due = await db()
     .select({ domain: schema.companies.domain })
     .from(schema.companies)
-    .where(and(isNotNull(schema.companies.jobsUrl), ne(schema.companies.ats, "none"), or(isNull(schema.companies.lastCrawledAt), lt(schema.companies.lastCrawledAt, stale))))
+    .where(and(isNotNull(schema.companies.jobsUrl), isNull(schema.companies.sector), ne(schema.companies.ats, "none"), or(isNull(schema.companies.lastCrawledAt), lt(schema.companies.lastCrawledAt, stale))))
     .orderBy(asc(schema.companies.lastCrawledAt))
     .limit(BATCH);
   const meter = new CostMeter();
@@ -59,5 +60,8 @@ export async function GET(req: Request) {
       }
     }),
   );
-  return NextResponse.json({ checked: results.length, ok: results.filter((r) => r.ok).length, jobs: results.reduce((s, r) => s + r.jobs, 0), costEur: Math.round(meter.eur * 1000) / 1000 });
+  // Sectorwachtrij (zelfde cron): nieuwe registerwerkgevers koppelen, dan nieuwe en vervallen sectorwerkgevers crawlen.
+  const linked = await linkNewEntries(10).catch(() => null);
+  const sectorCrawl = await crawlQueue(12).catch(() => null);
+  return NextResponse.json({ checked: results.length, ok: results.filter((r) => r.ok).length, jobs: results.reduce((s, r) => s + r.jobs, 0), costEur: Math.round(meter.eur * 1000) / 1000, linked, sectorCrawl });
 }

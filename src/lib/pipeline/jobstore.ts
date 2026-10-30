@@ -6,7 +6,7 @@ import { db, schema } from "@/lib/db";
 import type { Job } from "@/lib/db/schema";
 import type { NormalizedJob, Profile } from "./types";
 import { withinProfileRadius } from "@/lib/geo";
-import { isIntermediaryCompany } from "@/lib/blocklist";
+import { isIntermediaryCompany, isTrustedEmployer } from "@/lib/blocklist";
 import { contentHash } from "./index-cache";
 
 export function normalizeUrl(url: string): string {
@@ -97,7 +97,7 @@ export function locationStatus(location: string | null | undefined, profile: Pro
 }
 
 export function prefilterWithReasons<
-  T extends { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string },
+  T extends { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string; raw?: unknown },
 >(jobsIn: T[], profile: Profile): { kept: T[]; dropped: PrefilterReasons } {
   const dropped: PrefilterReasons = { regio: 0, tussenpersoon: 0, uitsluiting: 0 };
   const kept: T[] = [];
@@ -111,18 +111,18 @@ export function prefilterWithReasons<
 
 /** Filter op regio en uitsluitingen, vóór enige LLM-call. */
 export function prefilterJobs<
-  T extends { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string },
+  T extends { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string; raw?: unknown },
 >(jobsIn: T[], profile: Profile): T[] {
   return prefilterWithReasons(jobsIn, profile).kept;
 }
 
 /** Waarom valt deze vacature weg vóór de AI? null = houden. Onbekend is niet hetzelfde als uitgesloten. */
 export function prefilterReason(
-  j: { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string },
+  j: { title: string; location?: string | null; descriptionText?: string | null; companyName?: string | null; url?: string | null; source?: string; raw?: unknown },
   profile: Profile,
 ): keyof PrefilterReasons | null {
-  // Enkel bevestigde tussenpersonen (naam of domein); een onbekende werkgever blijft.
-  if (isIntermediaryCompany(j.companyName, j.url)) return "tussenpersoon";
+  // Enkel bevestigde tussenpersonen (naam of domein); een onbekende werkgever blijft. Registerwerkgevers nooit.
+  if (!isTrustedEmployer(j) && isIntermediaryCompany(j.companyName, j.url)) return "tussenpersoon";
   // Enkel een bevestigde plaats buiten de straal valt weg. Een lege, vage ("België") of onbekende
   // locatie is 'afstand nog niet gekend': die blijft, en krijgt later het label 'locatie te verifiëren'.
   if (withinProfileRadius(j.location, profile) === false) return "regio";

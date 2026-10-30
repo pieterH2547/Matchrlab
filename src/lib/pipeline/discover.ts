@@ -55,7 +55,8 @@ export type DiscoveryResult = {
 };
 
 /** Google Maps-categorieën van tussenpersonen: nooit als werkgever meenemen. */
-const AGENCY_CATEGORY = /(uitzend|interim|recruit|werving|selectie|headhunt|employment agency|staffing|personeelsdienst|outsourcing|consult)/i;
+// Geen kaal "consult": een financieel adviseur of verzekeringsconsulent is een eindwerkgever, geen bureau.
+const AGENCY_CATEGORY = /(uitzend|interim|recruit|werving|selectie|headhunt|employment agency|staffing|personeelsdienst|outsourcing|hr[- ]?consult|personeelsconsult)/i;
 
 /** Zoekbudget voor Google Maps, afhankelijk van de straal: groter gebied = meer gemeenten = meer vragen. */
 export function mapsBudget(radiusKm: number): number {
