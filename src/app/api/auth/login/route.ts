@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!name) return NextResponse.json({ error: "Vul je naam in." }, { status: 400 });
   // Zonder wachtwoord: gewone gebruiker (enkel naam). Met wachtwoord: ook toegang tot /admin.
   const admin = password !== "";
-  if (admin && !passwordMatches(password, env.APP_PASSWORD)) {
+  if (admin && !passwordMatches(password, env.ADMIN_PASSWORD ?? env.APP_PASSWORD)) {
     return NextResponse.json({ error: "Wachtwoord klopt niet." }, { status: 401 });
   }
   const token = await signSession(newSession(name, admin), env.APP_PASSWORD);

@@ -124,33 +124,23 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const profile = cachedProfile ?? (await buildProfile({ cvText: run.cvText ?? "", freeText: run.freeText ?? "", previousProfile: run.profile }, meter));
         if (!cachedProfile && !run.profile) await writeCache("profile", [{ key: profileKey, value: profile }]);
         if (cachedProfile) countCall("profile_cache");
-        if (isVagueRegion(profile.region)) {
-          // Zonder woonplaats zoeken we niet in heel Vlaanderen: eerst de regio vragen (snel en goedkoop).
-          state = {
-            ...setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · regio onbekend` }),
-            steps: setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · regio onbekend` }).steps.map((s) => (s.key === "profile" ? s : { ...s, status: "skipped" as const })),
-            intro: "Ik vind geen woonplaats in het cv. Vul de regio in (bv. Mechelen) bij Aanpassen of in het regioveld onderaan, dan zoek ik gericht.",
-            followups: [],
-            needsRegion: true,
-          };
-          await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "done", state });
-          await addCost(runId, meter);
-          emit({ type: "status", status: "done", state });
-          return "done";
-        }
-        state = setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0]} · ${profile.region} · ${profile.radius_km} km` });
+        // Eerst de recruiter laten nakijken: de zoekvelden verschijnen ingevuld en aanpasbaar; de zoektocht
+        // start pas na "Start zoektocht" (confirmAndStart). Zonder woonplaats is het regioveld verplicht.
+        const vague = isVagueRegion(profile.region);
+        state = {
+          ...setStep(state, "profile", { status: "done", detail: `${profile.job_titles[0] ?? "profiel"} · ${vague ? "regio onbekend" : `${profile.region} · ${profile.radius_km} km`}` }),
+          intro: vague
+            ? "Ik vind geen woonplaats in het cv. Vul de regio in en kijk de zoekvelden na, dan start ik de zoektocht."
+            : "Kijk de zoekvelden na en pas aan waar nodig. De zoektocht start pas als je op Start klikt.",
+          followups: [],
+          needsRegion: vague,
+          awaitingConfirm: true,
+        };
         state = timed(state, "profile", Date.now() - tProfile);
-        // Warme index: vacatures die we al kennen en die voor dit profiel al gescoord zijn, meteen tonen
-        // (enkel als hun controle recent is). Anders een voorlopige lijst uit de index, nog niet beoordeeld.
-        const tWarm = Date.now();
-        const warm = await warmStart(runId, profile).catch(() => ({ shown: 0, preview: [] as PreviewItem[], ids: [] as number[] }));
-        state = timed(state, "warmIndex", Date.now() - tWarm);
-        if (warm.shown) state = timed(state, "firstResult", Date.now() - (state.stats?.startedAt ?? run.createdAt.getTime()));
-        state = { ...state, preview: warm.preview, jobIds: [...(state.jobIds ?? []), ...warm.ids], stats: { ...(state.stats ?? {}), startedAt: state.stats?.startedAt ?? run.createdAt.getTime() } };
-        await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "jobboards", state });
+        await saveRun(runId, { profile, candidateName: profile.candidate_name || run.candidateName, status: "done", state });
         await addCost(runId, meter);
-        emit({ type: "status", status: "jobboards", state });
-        return "jobboards";
+        emit({ type: "status", status: "done", state });
+        return "done";
       }
       case "jobboards": {
         if (isVagueRegion(run.profile?.region)) {
@@ -681,6 +671,32 @@ async function indexedCandidates(profile: Profile, max = 60): Promise<Job[]> {
   const names = await companyNames(rows);
   const kept = prefilterWithReasons(rows.map((j) => ({ ...j, companyName: names.get(j.id) ?? "" })), profile).kept;
   return kept.filter((j) => withinProfileRadius(j.location, profile) !== false).slice(0, max) as Job[];
+}
+
+/**
+ * De recruiter bevestigt (en past eventueel aan) de zoekvelden; pas dan start de zoektocht.
+ * Idempotent: een run die al gestart is, wordt niet opnieuw gestart.
+ */
+export async function confirmAndStart(runId: number, patch: Partial<Profile>): Promise<Run | null> {
+  const run = (await db().select().from(schema.runs).where(eq(schema.runs.id, runId)).limit(1))[0];
+  if (!run?.profile || !run.state?.awaitingConfirm) return run ?? null;
+  const profile: Profile = { ...run.profile, ...patch };
+  // Andere regio: de buurgemeenten van de oude regio gelden niet meer (onze gemeentelijst vult aan).
+  if (patch.region && patch.region.toLowerCase() !== run.profile.region.toLowerCase() && !patch.nearby_municipalities) profile.nearby_municipalities = [];
+  if (isVagueRegion(profile.region)) throw new Error("Vul een gemeente in als regio (bv. Mechelen).");
+  let state: RunState = {
+    ...run.state,
+    awaitingConfirm: false,
+    needsRegion: false,
+    intro: undefined,
+    steps: run.state.steps.map((st) => (st.key === "profile" ? { ...st, status: "done" as const, detail: `${profile.job_titles[0]} · ${profile.region} · ${profile.radius_km} km` } : { ...st, status: "waiting" as const, detail: undefined })),
+    stats: { ...(run.state.stats ?? {}), startedAt: Date.now() },
+  };
+  // Warme index: gekende, al gescoorde vacatures meteen tonen; anders een voorlopige lijst.
+  const warm = await warmStart(runId, profile).catch(() => ({ shown: 0, preview: [] as PreviewItem[], ids: [] as number[] }));
+  state = { ...state, preview: warm.preview, jobIds: [...(state.jobIds ?? []), ...warm.ids] };
+  const updated = (await db().update(schema.runs).set({ profile, status: "jobboards", state }).where(eq(schema.runs.id, runId)).returning())[0];
+  return updated ?? null;
 }
 
 type PreviewItem = { title: string; company: string; location: string; url: string };

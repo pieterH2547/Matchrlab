@@ -175,6 +175,8 @@ export type RunState = {
   secondRoundDone?: boolean;
   /** Run gestopt na het profiel omdat er geen woonplaats was. */
   needsRegion?: boolean;
+  /** Profiel klaar; wacht tot de recruiter de zoekvelden bevestigt (Start zoektocht). */
+  awaitingConfirm?: boolean;
   kpi?: { verifiedJobs: number; proactive: number; relationsChecked: number; draftsSaved: number };
 };
 

@@ -31,6 +31,13 @@ export const env = {
   get DATABASE_URL() {
     return required("DATABASE_URL");
   },
+  /**
+   * Beheerderswachtwoord voor /admin (import, crawls). Los van APP_PASSWORD, want die versleutelt ook de
+   * opgeslagen API-keys: APP_PASSWORD wijzigen maakt alle keys onleesbaar. Leeg = APP_PASSWORD (oude werking).
+   */
+  get ADMIN_PASSWORD() {
+    return optional("ADMIN_PASSWORD");
+  },
   get APP_PASSWORD() {
     return required("APP_PASSWORD");
   },

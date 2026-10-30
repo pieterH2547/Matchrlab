@@ -116,6 +116,16 @@ export function App({ me }: { me: string }) {
     setPendingUser(null);
   }
 
+  /** Zoekvelden bevestigd: zoektocht starten en de run verder aansturen. */
+  async function startSearch(runId: number, patch: Partial<Profile>) {
+    const res = await fetch(`/api/runs/${runId}/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profile: patch }) });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) throw new Error(data.error ?? "Starten mislukt.");
+    const fresh = await fetchThread(runId);
+    setThread(fresh.runs);
+    await drive(runId);
+  }
+
   async function submit(input: { text: string; file?: File | null; profileOverride?: Partial<Profile> }) {
     if (busy) return;
     setSubmitting(true);
@@ -153,7 +163,13 @@ export function App({ me }: { me: string }) {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
             <div className="mx-auto w-full max-w-[760px] py-8">
               {thread.length === 0 && !pendingUser && <EmptyState />}
-              <Thread runs={thread} pendingUser={pendingUser} onFollowup={(text) => submit({ text })} onEditProfile={(patch) => submit({ text: "Parameters aangepast", profileOverride: patch })} />
+              <Thread
+                runs={thread}
+                pendingUser={pendingUser}
+                onFollowup={(text) => submit({ text })}
+                onEditProfile={(patch) => submit({ text: "Parameters aangepast", profileOverride: patch })}
+                onStart={startSearch}
+              />
               {error && <p className="mt-4 text-sm text-err">{error}</p>}
             </div>
           </div>

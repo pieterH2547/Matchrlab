@@ -8,18 +8,20 @@ export function Thread({
   pendingUser,
   onFollowup,
   onEditProfile,
+  onStart,
 }: {
   runs: RunView[];
   pendingUser: { text: string; attachment?: { name: string; size: number } } | null;
   onFollowup: (text: string) => void;
   onEditProfile: (patch: Partial<Profile>) => void;
+  onStart?: (runId: number, patch: Partial<Profile>) => Promise<void>;
 }) {
   return (
     <div className="space-y-10">
       {runs.map((run, i) => (
         <div key={run.id} className="space-y-6">
           <UserMessage text={run.freeText ?? ""} attachment={run.attachment} />
-          <AssistantMessage run={run} isLatest={i === runs.length - 1} onFollowup={onFollowup} onEditProfile={onEditProfile} />
+          <AssistantMessage run={run} isLatest={i === runs.length - 1} onFollowup={onFollowup} onEditProfile={onEditProfile} onStart={onStart} />
         </div>
       ))}
       {pendingUser && (
@@ -55,7 +57,19 @@ function UserMessage({ text, attachment }: { text: string; attachment?: { name: 
   );
 }
 
-function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: RunView; isLatest: boolean; onFollowup: (t: string) => void; onEditProfile: (p: Partial<Profile>) => void }) {
+function AssistantMessage({
+  run,
+  isLatest,
+  onFollowup,
+  onEditProfile,
+  onStart,
+}: {
+  run: RunView;
+  isLatest: boolean;
+  onFollowup: (t: string) => void;
+  onEditProfile: (p: Partial<Profile>) => void;
+  onStart?: (runId: number, patch: Partial<Profile>) => Promise<void>;
+}) {
   const running = run.status !== "done" && run.status !== "failed";
   if (run.state.answer) {
     return <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{run.state.answer}</div>;
@@ -64,7 +78,11 @@ function AssistantMessage({ run, isLatest, onFollowup, onEditProfile }: { run: R
   return (
     <div className="space-y-6">
       {run.profile && <CandidateCard profile={run.profile} />}
-      {run.profile && <Chips profile={run.profile} editable={isLatest && !running} onEdit={onEditProfile} autoOpen={Boolean(run.state.needsRegion && isLatest)} />}
+      {run.profile && run.state.awaitingConfirm && isLatest && onStart ? (
+        <SearchFields profile={run.profile} onStart={(patch) => onStart(run.id, patch)} />
+      ) : run.profile && !run.state.awaitingConfirm ? (
+        <Chips profile={run.profile} editable={isLatest && !running} onEdit={onEditProfile} autoOpen={Boolean(run.state.needsRegion && isLatest)} />
+      ) : null}
       {run.state.steps.length > 0 && <Steps steps={run.state.steps} />}
       {run.status === "failed" && <p className="text-sm text-err">De run is gestopt: {run.state.error ?? "onbekende fout"}.</p>}
       {run.state.intro && <p className="text-[15px] leading-relaxed">{run.state.intro}</p>}
@@ -611,6 +629,88 @@ function Chips({ profile, editable, onEdit, autoOpen = false }: { profile: Profi
         </div>
       )}
     </div>
+  );
+}
+
+/** Wat uit het cv gehaald werd, als aanpasbare zoekvelden. De zoektocht start pas na "Start zoektocht". */
+function SearchFields({ profile, onStart }: { profile: Profile; onStart: (patch: Partial<Profile>) => Promise<void> }) {
+  const j = (xs: string[] | undefined) => (xs ?? []).join(", ");
+  const [f, setF] = useState({
+    titles: j(profile.job_titles),
+    related: j(profile.related_titles),
+    variants: j(profile.title_variants),
+    region: profile.region,
+    radius: String(profile.radius_km),
+    years: String(profile.years_experience),
+    skills: j(profile.skills),
+    keywords: j(profile.skill_keywords),
+    sectors: j(profile.sectors),
+    companyTypes: j(profile.company_types),
+    exclusions: j(profile.exclusions),
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const split = (s: string) =>
+    s
+      .split(/[,;\n]/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  async function start() {
+    if (!f.region.trim() || /^(vlaanderen|belgi[eë]|belgium|wallonie)$/i.test(f.region.trim())) {
+      setError("Vul een gemeente in als regio, bv. Mechelen.");
+      return;
+    }
+    if (!split(f.titles).length) {
+      setError("Vul minstens één functietitel in.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await onStart({
+        job_titles: split(f.titles),
+        related_titles: split(f.related),
+        title_variants: split(f.variants),
+        region: f.region.trim(),
+        radius_km: Number(f.radius) || profile.radius_km,
+        years_experience: Number(f.years) || 0,
+        skills: split(f.skills),
+        skill_keywords: split(f.keywords),
+        sectors: split(f.sectors),
+        company_types: split(f.companyTypes),
+        exclusions: split(f.exclusions),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+  const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
+  return (
+    <Section title="Zoekvelden · uit het cv gehaald, pas aan waar nodig">
+      <div className="pt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2">
+        <Field label="Functietitels" value={f.titles} onChange={set("titles")} />
+        <Field label="Verwante functies" value={f.related} onChange={set("related")} />
+        <Field label="Ook zoeken als (EN/FR)" value={f.variants} onChange={set("variants")} />
+        <div className="grid grid-cols-[1fr_90px_90px] gap-3">
+          <Field label="Regio (gemeente)" value={f.region} onChange={set("region")} />
+          <Field label="Straal km" value={f.radius} onChange={set("radius")} />
+          <Field label="Jaren" value={f.years} onChange={set("years")} />
+        </div>
+        <Field label="Vaardigheden" value={f.skills} onChange={set("skills")} />
+        <Field label="Kerntaken" value={f.keywords} onChange={set("keywords")} />
+        <Field label="Sectoren" value={f.sectors} onChange={set("sectors")} />
+        <Field label="Soorten werkgevers" value={f.companyTypes} onChange={set("companyTypes")} />
+        <Field label="Uitsluiten" value={f.exclusions} onChange={set("exclusions")} />
+      </div>
+      <p className="mt-2 text-xs text-ink-faint">Meerdere waarden scheiden met een komma.</p>
+      <div className="mt-3 flex items-center gap-3">
+        <button type="button" onClick={start} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-medium bg-navy text-white hover:bg-navy-2 disabled:opacity-50">
+          {busy ? "Zoektocht start…" : "Start zoektocht"}
+        </button>
+        {error && <span className="text-sm text-err">{error}</span>}
+      </div>
+    </Section>
   );
 }
 
