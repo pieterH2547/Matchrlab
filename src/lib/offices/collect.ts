@@ -18,6 +18,7 @@ import { crawlQueue } from "@/lib/sector/process";
 import { BE_ZIP_NAMES } from "@/lib/geo-be";
 import { fetchOverpassDetailed, FLANDERS_CHUNKS, FLANDERS_TILES, osmToOffice, overpassQuery } from "./osm";
 import { BRAND_SITES, readBrandPages } from "./brands";
+import { matchJobsToOffices, recentSweepJobs, type OfficeJob } from "./jobsearch";
 import { fetchPage } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
 import { distanceKm, municipalitiesWithin, type GeoPoint } from "@/lib/geo";
@@ -456,6 +457,10 @@ export type OfficeView = {
   contactName: string | null;
   /** De website is die van het merk (meerdere kantoren delen ze): vacatures gelden dan voor het merk, niet per se dit kantoor. */
   brandSite: boolean;
+  /** Vacatures uit de zoektocht (Adzuna, Jooble, Google Jobs, zoekketen) die bij dit kantoor horen (werkgever + gemeente). */
+  jobs: OfficeJob[];
+  /** Open vacatures op de eigen website (crawler), los van de zoektocht. */
+  siteJobs: number;
   rating: number | null;
   ratingCount: number | null;
   sources: string[];
@@ -485,6 +490,8 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
         .where(inArray(schema.companies.domain, domains))
     : [];
   const byDomain = new Map(companies.map((c) => [c.domain, c]));
+  const sweep = await recentSweepJobs().catch(() => []);
+  const matched = matchJobsToOffices(rows, sweep);
   const out: OfficeView[] = [];
   for (const o of rows) {
     const d = distanceKm(center, { lat: o.lat!, lon: o.lng! });
@@ -508,12 +515,14 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
       contactEmail: c?.contactEmail ?? null,
       contactName: c?.contactName ?? null,
       brandSite: Boolean(o.domain && (perDomain.get(o.domain) ?? 0) >= 3),
+      jobs: matched.get(o.id) ?? [],
+      siteJobs: c?.open ?? 0,
       rating: o.rating,
       ratingCount: o.ratingCount,
       sources: o.sources,
       verified: o.sources.length >= 2 || o.sources.includes("fsma"),
       distanceKm: Math.round(d * 10) / 10,
-      openJobs: c?.open ?? 0,
+      openJobs: (c?.open ?? 0) + (matched.get(o.id)?.length ?? 0),
       careersUrl: c?.jobsUrl ?? null,
       lastSeenAt: o.lastSeenAt.toISOString(),
     });

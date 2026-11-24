@@ -240,6 +240,15 @@ function OfficeList({ offices }: { offices: OfficeView[] }) {
                 {o.brand ? ` · ${o.brand}` : ""}
                 {o.address ? ` · ${o.address}` : o.municipality ? ` · ${o.municipality}` : ""}
               </span>
+              {o.jobs?.length > 0 && (
+                <span className="block text-[12.5px]">
+                  {o.jobs.slice(0, 3).map((j) => (
+                    <a key={j.url} href={j.url} target="_blank" rel="noopener noreferrer" className="mr-2 text-ok hover:underline underline-offset-4">
+                      ▸ {j.title}
+                    </a>
+                  ))}
+                </span>
+              )}
               {(o.phone || o.contactEmail || o.email) && (
                 <span className="block text-[12.5px] text-ink-soft">
                   {o.phone ? `☏ ${o.phone}` : ""}
@@ -388,7 +397,7 @@ export function csvRows(run: Pick<RunView, "matches" | "state">): (string | numb
   return [
     ["Type", "Status", "Score", "Functie / soort kantoor", "Werkgever", "Merk", "Locatie", "Afstand (km)", "Waarom match", "Risico", "Contactpersoon", "E-mail", "Telefoon", "Link", "Verificatie / bronnen", "Open vacatures"],
     ...run.matches.map((m) => ["Vacature", "vacature", Math.round(m.score / 10), m.title, m.company, "", m.location, "", m.argument || m.reason, m.risk, m.contactName, m.contactEmail, "", m.url, m.verification, ""]),
-    ...(run.state.offices ?? []).map((o) => ["Kantoor", o.openJobs > 0 ? "met vacatures" : "zonder vacature", "", OFFICE_KIND[o.kind] ?? o.kind, o.name, o.brand, o.address ?? o.municipality, o.distanceKm, "", "", o.contactName, o.contactEmail ?? o.email, o.phone, o.careersUrl ?? o.website, o.sources.join(", ") + (o.verified ? " (bevestigd)" : ""), o.openJobs]),
+    ...(run.state.offices ?? []).map((o) => ["Kantoor", o.openJobs > 0 ? "met vacatures" : "zonder vacature", "", OFFICE_KIND[o.kind] ?? o.kind, o.name, o.brand, o.address ?? o.municipality, o.distanceKm, (o.jobs ?? []).map((j) => `${j.title} · ${j.url}`).join(" | "), "", o.contactName, o.contactEmail ?? o.email ?? (o.jobs ?? []).map((j) => j.email).find(Boolean) ?? null, o.phone, o.careersUrl ?? o.website, o.sources.join(", ") + (o.verified ? " (bevestigd)" : ""), o.openJobs]),
   ];
 }
 

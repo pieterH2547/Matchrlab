@@ -4,6 +4,16 @@ import { geocode, findPlaceName } from "@/lib/geo";
 import { BRAND_SITES } from "@/lib/offices/brands";
 import { allFlemishOffices, buildOffices, buildOfficesFlanders, crawlOfficeJobs, importBrandSite, importOsmTiles, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
 import { FLANDERS_CHUNKS } from "@/lib/offices/osm";
+import { sweepJobs } from "@/lib/offices/jobsearch";
+
+/** Heel Vlaanderen in vijf zoekgebieden (provinciehoofdsteden, 45 km). */
+const SWEEP_AREAS = [
+  { region: "Brugge", center: { lat: 51.2093, lon: 3.2247 } },
+  { region: "Gent", center: { lat: 51.0543, lon: 3.7174 } },
+  { region: "Antwerpen", center: { lat: 51.2194, lon: 4.4025 } },
+  { region: "Leuven", center: { lat: 50.8798, lon: 4.7005 } },
+  { region: "Hasselt", center: { lat: 50.9307, lon: 5.3378 } },
+];
 import type { OfficeSector } from "@/lib/offices/classify";
 
 export const maxDuration = 300;
@@ -77,10 +87,16 @@ export async function POST(req: Request) {
       if (!r.rows) return NextResponse.json({ error: `Geen bruikbare rijen. Gevonden kolommen: ${r.columns.join(", ") || "geen"}.` }, { status: 400 });
       return NextResponse.json({ ok: true, ...r });
     }
-    const body = (await req.json().catch(() => ({}))) as { action?: string; plaats?: string; straal?: number; sectors?: string; budget?: number; chunk?: number; brand?: string; offset?: number };
+    const body = (await req.json().catch(() => ({}))) as { action?: string; plaats?: string; straal?: number; sectors?: string; budget?: number; chunk?: number; brand?: string; offset?: number; googleJobs?: boolean };
     const budget = Math.max(0, Math.min(Number(body.budget) || 40, 150));
     // Heel Vlaanderen: geen plaats nodig.
     if (body.action === "build_all") return NextResponse.json({ ok: true, ...(await buildOfficesFlanders(parseSectors(body.sectors), budget)) });
+    if (body.action === "jobs_sweep_all") {
+      const i = Math.max(0, Math.min(Number(body.offset) || 0, SWEEP_AREAS.length - 1));
+      const a = SWEEP_AREAS[i];
+      const r = await sweepJobs(a.center, a.region, 45, parseSectors(body.sectors), { useGoogleJobs: Boolean(body.googleJobs), webBudget: 6 });
+      return NextResponse.json({ ok: true, ...r, next: i + 1 < SWEEP_AREAS.length ? i + 1 : null, areas: SWEEP_AREAS.length });
+    }
     if (body.action === "brand") {
       if (!BRAND_SITES.some((b) => b.key === body.brand)) return NextResponse.json({ error: `Onbekend merk. Beschikbaar: ${BRAND_SITES.map((b) => b.key).join(", ")}.` }, { status: 400 });
       return NextResponse.json({ ok: true, ...(await importBrandSite(String(body.brand), Math.max(0, Number(body.offset) || 0), 40)) });
@@ -95,6 +111,7 @@ export async function POST(req: Request) {
     const place = resolvePlace(body.plaats);
     if (!place) return NextResponse.json({ error: "Onbekende plaats." }, { status: 400 });
     const radius = parseRadius(body.straal);
+    if (body.action === "jobs_sweep") return NextResponse.json({ ok: true, ...(await sweepJobs(place.center, place.label, radius, parseSectors(body.sectors), { useGoogleJobs: Boolean(body.googleJobs), webBudget: 6 })) });
     if (body.action === "jobs") return NextResponse.json({ ok: true, ...(await crawlOfficeJobs(place.center, radius, 16)) });
     if (body.action === "osm") return NextResponse.json({ ok: true, ...(await importOsm({ center: place.center, radiusKm: radius })) });
     if (body.action === "build") return NextResponse.json({ ok: true, ...(await buildOffices(place.center, radius, parseSectors(body.sectors), budget)) });

@@ -145,3 +145,31 @@ describe("kantorenkaart: OSM-tegels", () => {
     expect(last[3]).toBe(5.95);
   });
 });
+
+describe("kantorenkaart: vacatures koppelen aan kantoren", () => {
+  it("koppelt op merk of naam én gemeente of postcode", async () => {
+    const { matchJobsToOffices } = await import("@/lib/offices/jobsearch");
+    const offices = [
+      { id: 1, name: "KBC Bank Mechelen", brand: "KBC", postcode: "2800", municipality: "Mechelen" },
+      { id: 2, name: "KBC Bank Gent", brand: "KBC", postcode: "9000", municipality: "Gent" },
+      { id: 3, name: "Verzekeringen De Smet", brand: null, postcode: "2800", municipality: "Mechelen" },
+    ];
+    const jobs = [
+      { id: 10, title: "Kredietadviseur", url: "https://x/1", source: "adzuna" as const, location: "Mechelen", raw: { companyName: "KBC Bank & Verzekering" }, descriptionText: "Solliciteer via jobs@kbc.be" },
+      { id: 11, title: "Schadebeheerder", url: "https://x/2", source: "jooble" as const, location: "2800 Mechelen", raw: { companyName: "De Smet Verzekeringen bv" }, descriptionText: null },
+      { id: 12, title: "Bankbediende", url: "https://x/3", source: "adzuna" as const, location: "België", raw: { companyName: "KBC" }, descriptionText: null },
+    ];
+    const m = matchJobsToOffices(offices, jobs);
+    expect(m.get(1)?.map((j) => j.title)).toEqual(["Kredietadviseur"]);
+    expect(m.get(1)?.[0].email).toBe("jobs@kbc.be");
+    expect(m.get(2)).toBeUndefined();
+    expect(m.get(3)?.map((j) => j.title)).toEqual(["Schadebeheerder"]);
+  });
+  it("bouwt een sectorprofiel dat de jobboard-functies aankunnen", async () => {
+    const { sectorProfile, SECTOR_TITLES } = await import("@/lib/offices/jobsearch");
+    const p = sectorProfile("bank", SECTOR_TITLES.bank.slice(0, 3), "Mechelen", 20, { lat: 51.0259, lon: 4.4776 });
+    expect(p.job_titles).toHaveLength(3);
+    expect(p.region).toBe("Mechelen");
+    expect(p.nearby_municipalities.length).toBeGreaterThan(0);
+  });
+});

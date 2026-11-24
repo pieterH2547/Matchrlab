@@ -19,7 +19,7 @@ describe("export van alle matches", () => {
 });
 
 describe("export met kantoren uit de kantorenkaart", () => {
-  const office = { id: 1, sector: "bank", kind: "bankkantoor", name: "KBC Mechelen", brand: "KBC", address: "Bruul 1, 2800 Mechelen", postcode: "2800", municipality: "Mechelen", lat: 51, lng: 4.4, approximate: false, website: "https://kbc.be", phone: "015 00 00 00", email: "info@kbc-mechelen.be", contactEmail: "jobs@kbc.be", contactName: "Els Peeters", brandSite: false, rating: null, ratingCount: null, sources: ["google_maps", "fsma"], verified: true, distanceKm: 1.2, openJobs: 2, careersUrl: "https://kbc.be/jobs", lastSeenAt: "" } as const;
+  const office = { id: 1, sector: "bank", kind: "bankkantoor", name: "KBC Mechelen", brand: "KBC", address: "Bruul 1, 2800 Mechelen", postcode: "2800", municipality: "Mechelen", lat: 51, lng: 4.4, approximate: false, website: "https://kbc.be", phone: "015 00 00 00", email: "info@kbc-mechelen.be", contactEmail: "jobs@kbc.be", contactName: "Els Peeters", brandSite: false, jobs: [], siteJobs: 2, rating: null, ratingCount: null, sources: ["google_maps", "fsma"], verified: true, distanceKm: 1.2, openJobs: 2, careersUrl: "https://kbc.be/jobs", lastSeenAt: "" } as const;
   const run = { candidateName: "Jan", profile: { job_titles: ["Bankbediende"], region: "Mechelen", radius_km: 20 } as never, state: { steps: [], offices: [office] } as never, matches: [] };
   it("tekst vermeldt de kantoren als kansen", () => {
     const text = matchesAsText(run);

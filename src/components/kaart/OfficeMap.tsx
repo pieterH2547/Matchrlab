@@ -114,6 +114,24 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
                 </div>
               </div>
               {o.address && <div className="mt-2 text-[12.5px] text-ink-soft">{o.address}</div>}
+              {o.jobs.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-[12px]">
+                  {o.jobs.slice(0, 5).map((j) => (
+                    <li key={j.url}>
+                      <a href={j.url} target="_blank" rel="noreferrer" className="font-medium text-ok hover:underline">
+                        {j.title}
+                      </a>
+                      <span className="text-ink-faint"> · {j.source === "google_jobs" ? "Google Jobs" : j.source}</span>
+                      {j.email && (
+                        <a href={`mailto:${j.email}`} className="text-ink-soft">
+                          {" "}
+                          · {j.email}
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <div className="mt-2 flex flex-wrap gap-1">
                 {o.openJobs > 0 && (
                   <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-medium text-ok">

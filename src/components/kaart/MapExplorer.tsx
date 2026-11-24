@@ -297,14 +297,88 @@ export function MapExplorer() {
     setBusy(null);
   }
 
-  /** De getoonde lijst als CSV voor Excel (puntkomma en BOM). */
-  function exportCsv() {
+  /** Vacaturezoektocht: Adzuna, Jooble en de zoekketen (en Google Jobs als gevraagd) per regio of per provincie. */
+  async function runSweep(all: boolean) {
+    setBusy("sweep");
+    setError(null);
+    stopRef.current = false;
+    try {
+      const post = async (body: Record<string, unknown>) => {
+        const res = await fetch("/api/kaart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) throw new Error(String(j.error ?? `HTTP ${res.status}`));
+        return j;
+      };
+      const line = (j: Record<string, unknown>) => {
+        const ps = j.perSource as Record<string, { queries: number; raw: number; kept: number; error?: string; skipped?: string }>;
+        const parts = Object.entries(ps ?? {}).map(([k, v]) => `${k} ${v.kept}${v.error ? ` (${v.error})` : v.skipped ? ` (${v.skipped})` : ""}`);
+        return `Vacatures ${j.region}: ${j.found} gevonden, ${j.inRegion} in de regio, ${j.stored} bewaard · ${parts.join(", ")}.`;
+      };
+      if (all) {
+        let i: number | null = 0;
+        while (i !== null && !stopRef.current) {
+          const idx: number = i;
+          setProgress(`Vacatures zoeken, gebied ${idx + 1}/5…`);
+          const j = await post({ action: "jobs_sweep_all", offset: idx, sectors: sectors.join(",") });
+          setLog((l) => [line(j), ...l]);
+          i = typeof j.next === "number" ? j.next : null;
+        }
+      } else {
+        if (!plaats) return;
+        setProgress("Vacatures zoeken…");
+        const j = await post({ action: "jobs_sweep", plaats, straal: radius, sectors: sectors.join(",") });
+        setLog((l) => [line(j), ...l]);
+      }
+      await load(plaats, radius);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setProgress(null);
+    setBusy(null);
+  }
+
+  /** De getoonde lijst als CSV-tekst (puntkomma en BOM, opent correct in een Belgische Excel). */
+  function csvText(): string {
     const cell = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const rows: (string | number | null | undefined)[][] = [
-      ["Status", "Sector", "Soort", "Naam", "Merk", "Adres", "Postcode", "Gemeente", "Afstand (km)", "Telefoon", "E-mail", "Contactpersoon", "Wervingsmail", "Website", "Vacaturepagina", "Open vacatures", "Bronnen", "Bevestigd", "Ligging"],
-      ...offices.map((o) => [o.openJobs > 0 ? "met vacatures" : "zonder vacature", SECTOR_LABEL[o.sector], KIND_LABEL[o.kind] ?? o.kind, o.name, o.brand, o.address, o.postcode, o.municipality, o.distanceKm, o.phone, o.email, o.contactName, o.contactEmail, o.website, o.careersUrl, o.openJobs, o.sources.map((x) => SOURCE_LABEL[x] ?? x).join(", "), o.verified ? "ja" : "", o.approximate ? "bij benadering" : "exact"]),
+      ["Status", "Sector", "Soort", "Naam", "Merk", "Adres", "Postcode", "Gemeente", "Afstand (km)", "Telefoon", "E-mail", "Contactpersoon", "Wervingsmail", "Website", "Vacaturepagina", "Open vacatures", "Vacatures (titel · link)", "Vacaturemail", "Bronnen", "Bevestigd", "Ligging"],
+      ...offices.map((o) => [
+        o.openJobs > 0 ? "met vacatures" : "zonder vacature",
+        SECTOR_LABEL[o.sector],
+        KIND_LABEL[o.kind] ?? o.kind,
+        o.name,
+        o.brand,
+        o.address,
+        o.postcode,
+        o.municipality,
+        o.distanceKm || "",
+        o.phone,
+        o.email,
+        o.contactName,
+        o.contactEmail,
+        o.website,
+        o.careersUrl,
+        o.openJobs,
+        o.jobs.map((j) => `${j.title} · ${j.url}`).join(" | "),
+        o.jobs.map((j) => j.email).filter(Boolean).join(", "),
+        o.sources.map((x) => SOURCE_LABEL[x] ?? x).join(", "),
+        o.verified ? "ja" : "",
+        o.approximate ? "bij benadering" : "exact",
+      ]),
     ];
-    const csv = "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
+    return "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
+  }
+
+  const [copied, setCopied] = useState(false);
+  function copyCsv() {
+    void navigator.clipboard?.writeText(csvText()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+
+  function exportCsv() {
+    const csv = csvText();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = data?.center ? `kantoren-${(data.label ?? "kaart").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${radius}km.csv` : "kantoren-vlaanderen.csv";
@@ -496,6 +570,9 @@ export function MapExplorer() {
                 <span className="text-[11.5px] text-ink-faint shrink-0">
                   {offices.length} · {counts.brands} merken
                 </span>
+                <button type="button" onClick={copyCsv} className="shrink-0 rounded-md border border-line bg-white px-2 py-0.5 text-[11.5px] font-medium text-navy hover:border-navy" title="De getoonde lijst als CSV naar het klembord">
+                  {copied ? "✓ Gekopieerd" : "Kopieer CSV"}
+                </button>
                 <button type="button" onClick={exportCsv} className="shrink-0 rounded-md border border-line bg-white px-2 py-0.5 text-[11.5px] font-medium text-navy hover:border-navy" title="De getoonde lijst als Excel-bestand">
                   ⬇ Excel
                 </button>
@@ -537,8 +614,14 @@ export function MapExplorer() {
               >
                 {busy === "build" ? "Google Maps…" : "Google Maps afgaan"}
               </button>
-              <button type="button" disabled={!plaats || Boolean(busy)} onClick={runJobs} className="rounded-md border border-ok bg-[#dcfce7] px-3 py-1.5 font-medium text-ok hover:bg-[#bbf7d0] disabled:opacity-40">
-                {busy === "jobs" ? (progress ?? "bezig…") : "Vacatures zoeken bij deze kantoren"}
+              <button type="button" disabled={!plaats || Boolean(busy)} onClick={() => runSweep(false)} className="rounded-md border border-ok bg-[#dcfce7] px-3 py-1.5 font-medium text-ok hover:bg-[#bbf7d0] disabled:opacity-40">
+                {busy === "sweep" ? (progress ?? "bezig…") : "Vacatures zoeken (jobboards)"}
+              </button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => runSweep(true)} className="rounded-md border border-ok bg-white px-3 py-1.5 font-medium text-ok hover:bg-[#dcfce7] disabled:opacity-40">
+                Vacatures heel Vlaanderen
+              </button>
+              <button type="button" disabled={!plaats || Boolean(busy)} onClick={runJobs} className="rounded-md border border-line bg-white px-3 py-1.5 hover:bg-paper-soft disabled:opacity-40">
+                {busy === "jobs" ? (progress ?? "bezig…") : "Kantoorsites crawlen"}
               </button>
               {busy === "jobs" && (
                 <button type="button" onClick={() => (stopRef.current = true)} className="rounded-md border border-line bg-white px-3 py-1.5 hover:bg-paper-soft">
@@ -599,7 +682,7 @@ export function MapExplorer() {
               </span>
             </div>
             <p className="mt-2 text-ink-faint leading-relaxed">
-              Vacatures zoeken: de websites van de kantoren in de straal gaan in de vacature-crawler (jobpagina, ATS, extractie), 16 per ronde, daarna dagelijks vers. Bij een merksite (KBC, Belfius, …) gelden de vacatures voor het merk, niet per se voor dit kantoor. Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
+              Vacatures zoeken (jobboards): Adzuna, Jooble en de zoekketen (Google, LinkedIn, Indeed, VDAB) worden afgezocht op bank- en verzekeringsfuncties in de regio of per provincie; elke vacature wordt op werkgever + gemeente aan een kantoor gekoppeld, met mailadres als dat in de vacature staat. Kantoorsites crawlen: de websites van de kantoren in de straal gaan in de vacature-crawler (jobpagina, ATS, extractie), 16 per ronde, daarna dagelijks vers. Bij een merksite (KBC, Belfius, …) gelden de vacatures voor het merk, niet per se voor dit kantoor. Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
               profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan de kantoorpagina&apos;s van argenta.be en crelan.be, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
             </p>
             {log.length > 0 && (
@@ -708,6 +791,17 @@ function OfficeRow({
           {o.municipality ? ` · ${o.municipality}` : ""}
         </span>
         <ContactBits o={o} />
+        {o.jobs.length > 0 && (
+          <span className="mt-0.5 block space-y-0.5 text-[11.5px]" onClick={(e) => e.stopPropagation()}>
+            {o.jobs.slice(0, 3).map((j) => (
+              <a key={j.url} href={j.url} target="_blank" rel="noreferrer" className="block truncate text-ok hover:underline">
+                ▸ {j.title}
+                {j.email ? ` · ${j.email}` : ""}
+              </a>
+            ))}
+            {o.jobs.length > 3 && <span className="text-ink-faint">+{o.jobs.length - 3} meer in de popup</span>}
+          </span>
+        )}
         <span className="mt-1 flex flex-wrap gap-1">
           {o.openJobs > 0 && (
             <Badge tone="ok">
