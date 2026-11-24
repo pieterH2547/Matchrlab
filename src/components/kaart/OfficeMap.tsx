@@ -41,11 +41,17 @@ const homeIcon = L.divIcon({
 });
 
 /** Vliegt naar het nieuwe middelpunt en past de zoom aan de straal aan. */
+/** Vlaanderen (met Brussel): de kaart blijft hierbinnen. [zuid-west], [noord-oost] */
+const FLANDERS_BOUNDS = L.latLngBounds([50.66, 2.5], [51.54, 6.0]);
+
 function FitToRadius({ center, radiusKm }: { center: { lat: number; lon: number } | null; radiusKm: number }) {
   const map = useMap();
   const key = center ? `${center.lat},${center.lon},${radiusKm}` : "none";
   useEffect(() => {
-    if (!center) return;
+    if (!center) {
+      map.fitBounds(FLANDERS_BOUNDS, { padding: [8, 8] });
+      return;
+    }
     // Cirkel nog niet op de kaart: bounds zelf berekenen (vierkant van 2 × straal rond het middelpunt).
     const bounds = L.latLng(center.lat, center.lon).toBounds(radiusKm * 2 * 1000);
     map.flyToBounds(bounds, { padding: [24, 24], duration: 0.8 });
@@ -71,7 +77,7 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
   const markers = useRef(new Map<number, L.Marker>());
   const initial = useMemo<[number, number]>(() => (center ? [center.lat, center.lon] : [51.05, 4.4]), []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <MapContainer center={initial} zoom={center ? 11 : 8} zoomControl={false} className="h-full w-full" attributionControl>
+    <MapContainer center={initial} zoom={center ? 11 : 8} minZoom={8} maxBounds={FLANDERS_BOUNDS} maxBoundsViscosity={0.9} zoomControl={false} className="h-full w-full" attributionControl preferCanvas>
       {/* OpenStreetMap-tegels (geen key nodig), gedempt via CSS zodat de kantoren eruit springen. */}
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" className="basemap" maxZoom={19} />
       <FitToRadius center={center} radiusKm={radiusKm} />
@@ -102,7 +108,8 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
                   <div className="text-[14px] font-semibold leading-tight text-navy">{o.name}</div>
                   <div className="text-[11.5px] text-ink-soft mt-0.5">
                     {KIND_LABEL[o.kind]}
-                    {o.brand ? ` · ${o.brand}` : ""} · {o.distanceKm} km
+                    {o.brand ? ` · ${o.brand}` : ""}
+                    {o.distanceKm > 0 ? ` · ${o.distanceKm} km` : o.municipality ? ` · ${o.municipality}` : ""}
                   </div>
                 </div>
               </div>

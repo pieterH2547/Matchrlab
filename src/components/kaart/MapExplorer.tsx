@@ -20,6 +20,7 @@ type Payload = {
   offices: OfficeView[];
   stats: { sector: string; n: number; verified: number; maps: number; osm: number }[];
   error?: string;
+  all?: boolean;
 };
 
 const SECTOR_LABEL: Record<OfficeSector, string> = {
@@ -43,7 +44,7 @@ export function MapExplorer() {
     "bank",
     "verzekeringen",
   ]);
-  const [onlyJobs, setOnlyJobs] = useState(false);
+  const [jobsFilter, setJobsFilter] = useState<"alle" | "met" | "zonder">("alle");
   const [onlyVerified, setOnlyVerified] = useState(false);
   const [filter, setFilter] = useState("");
   const [data, setData] = useState<Payload | null>(null);
@@ -118,14 +119,14 @@ export function MapExplorer() {
     return (data?.offices ?? []).filter(
       (o) =>
         sectors.includes(o.sector) &&
-        (!onlyJobs || o.openJobs > 0) &&
+        (jobsFilter === "alle" || (jobsFilter === "met" ? o.openJobs > 0 : o.openJobs === 0)) &&
         (!onlyVerified || o.verified) &&
         (!q ||
           `${o.name} ${o.brand ?? ""} ${o.municipality ?? ""} ${o.address ?? ""}`
             .toLowerCase()
             .includes(q)),
     );
-  }, [data, sectors, onlyJobs, onlyVerified, filter]);
+  }, [data, sectors, jobsFilter, onlyVerified, filter]);
 
   const counts = useMemo(() => {
     const all = (data?.offices ?? []).filter((o) => sectors.includes(o.sector));
@@ -306,7 +307,7 @@ export function MapExplorer() {
     const csv = "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    a.download = `kantoren-${(data?.label ?? "kaart").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${radius}km.csv`;
+    a.download = data?.center ? `kantoren-${(data.label ?? "kaart").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${radius}km.csv` : "kantoren-vlaanderen.csv";
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
@@ -347,7 +348,7 @@ export function MapExplorer() {
             buurt<span className="text-gold">.</span>
           </h1>
           <p className="mt-1.5 text-[13px] text-ink-soft">
-            Woonplaats + straal. Elk kantoor is een kans, ook zonder vacature.
+            Heel Vlaanderen, of een straal rond een woonplaats. Elk kantoor is een kans, ook zonder vacature.
           </p>
 
           <form
@@ -370,11 +371,24 @@ export function MapExplorer() {
             >
               {loading ? "…" : "Toon"}
             </button>
+            {data?.center && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  search("", radius);
+                }}
+                className="rounded-lg border border-line bg-white px-3 py-2 text-[13px] text-navy hover:border-navy"
+                title="Alle kantoren in Vlaanderen"
+              >
+                Vlaanderen
+              </button>
+            )}
           </form>
 
           <div className="mt-4">
             <div className="flex items-baseline justify-between text-[12px] text-ink-soft">
-              <span>Straal rond {data?.label ?? "de woonplaats"}</span>
+              <span>{data?.center ? `Straal rond ${data.label}` : "Heel Vlaanderen · geef een woonplaats voor een straal"}</span>
               <span className="mono text-navy font-medium">{radius} km</span>
             </div>
             <input
@@ -417,13 +431,24 @@ export function MapExplorer() {
                 </button>
               );
             })}
-            <button
-              type="button"
-              onClick={() => setOnlyJobs((v) => !v)}
-              className={`rounded-full border px-3 py-1 text-[12.5px] font-medium transition-colors ${onlyJobs ? "border-ok bg-[#dcfce7] text-ok" : "border-line bg-white text-ink-soft hover:border-ok"}`}
-            >
-              Met vacatures
-            </button>
+            <span className="inline-flex overflow-hidden rounded-full border border-line bg-white text-[12.5px] font-medium">
+              {(
+                [
+                  ["alle", "Alle"],
+                  ["met", "Met vacatures"],
+                  ["zonder", "Zonder vacature"],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setJobsFilter(k)}
+                  className={`px-3 py-1 transition-colors ${jobsFilter === k ? (k === "met" ? "bg-[#dcfce7] text-ok" : k === "zonder" ? "bg-paper-soft text-navy" : "bg-navy text-white") : "text-ink-soft hover:bg-paper-soft"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
             <button
               type="button"
               onClick={() => setOnlyVerified((v) => !v)}
@@ -435,7 +460,7 @@ export function MapExplorer() {
         </div>
 
         {/* Cijfers */}
-        {data?.center && (
+        {data && (data.center || data.all) && (
           <div className="grid grid-cols-4 gap-px border-b border-line bg-line">
             <Stat label="kantoren" value={counts.total} />
             <Stat label="banken" value={counts.bank} color="#1b1845" />
@@ -450,18 +475,8 @@ export function MapExplorer() {
 
         {/* Lijst */}
         <div ref={listRef} className="flex-1 overflow-y-auto">
-          {!data?.center && !loading && (
-            <div className="px-5 py-10 text-center text-[13.5px] text-ink-soft">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gold-soft text-[22px]">
-                📍
-              </div>
-              Geef een woonplaats in om te beginnen.
-              <div className="mt-1 text-[12px] text-ink-faint">
-                Totaal op de kaart:{" "}
-                {data?.stats.reduce((a, b) => a + b.n, 0) ?? 0} kantoren in
-                Vlaanderen.
-              </div>
-            </div>
+          {data?.all && offices.length === 0 && !loading && (
+            <div className="px-5 py-10 text-center text-[13.5px] text-ink-soft">Geen kantoren voor deze filters.</div>
           )}
           {empty && (
             <div className="px-5 py-10 text-center text-[13.5px] text-ink-soft">
@@ -681,9 +696,11 @@ function OfficeRow({
           <span className="truncate text-[13.5px] font-medium text-navy">
             {o.name}
           </span>
-          <span className="mono shrink-0 text-[11.5px] text-ink-faint">
-            {o.distanceKm} km
-          </span>
+          {o.distanceKm > 0 && (
+            <span className="mono shrink-0 text-[11.5px] text-ink-faint">
+              {o.distanceKm} km
+            </span>
+          )}
         </span>
         <span className="block truncate text-[12px] text-ink-soft">
           {KIND_LABEL[o.kind]}

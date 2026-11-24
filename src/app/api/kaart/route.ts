@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { geocode, findPlaceName } from "@/lib/geo";
 import { BRAND_SITES } from "@/lib/offices/brands";
-import { buildOffices, buildOfficesFlanders, crawlOfficeJobs, importBrandSite, importOsmTiles, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
+import { allFlemishOffices, buildOffices, buildOfficesFlanders, crawlOfficeJobs, importBrandSite, importOsmTiles, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
 import { FLANDERS_CHUNKS } from "@/lib/offices/osm";
 import type { OfficeSector } from "@/lib/offices/classify";
 
@@ -42,7 +42,11 @@ export async function GET(req: Request) {
     const radius = parseRadius(url.searchParams.get("straal"));
     const sectors = parseSectors(url.searchParams.get("sector"));
     const stats = await officeStats();
-    if (!place) return NextResponse.json({ admin: Boolean(s.admin), center: null, label: null, radius, offices: [], stats, error: url.searchParams.get("plaats") ? "Die plaats ken ik niet. Probeer een gemeente of postcode in Vlaanderen." : undefined });
+    // Zonder (bekende) woonplaats: heel Vlaanderen.
+    if (!place) {
+      const offices = await allFlemishOffices(sectors);
+      return NextResponse.json({ admin: Boolean(s.admin), center: null, label: "Vlaanderen", radius, offices, stats, all: true, error: url.searchParams.get("plaats") ? "Die plaats ken ik niet; ik toon heel Vlaanderen. Probeer een gemeente of postcode in Vlaanderen." : undefined });
+    }
     const offices = await officesNear(place.center, radius, sectors);
     return NextResponse.json({ admin: Boolean(s.admin), center: place.center, label: place.label, radius, offices, stats });
   } catch (e) {

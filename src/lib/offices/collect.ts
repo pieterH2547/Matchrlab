@@ -591,6 +591,15 @@ export async function importOsmTiles(from: number, budgetMs = 200_000): Promise<
   return { from, done, tiles: FLANDERS_TILES.length, ...totals, failed, next: i < FLANDERS_TILES.length ? i : null };
 }
 
+/** Heel Vlaanderen: elk kantoor met een Vlaamse postcode (of binnen de Vlaamse rechthoek als de postcode ontbreekt), afstand = 0. */
+export async function allFlemishOffices(sectors: OfficeSector[]): Promise<OfficeView[]> {
+  const all = await officesNear(FLANDERS_CENTER, FLANDERS_RADIUS_KM, sectors);
+  return all
+    .filter((o) => (o.postcode ? isFlemishPostcode(o.postcode) : o.lat > 50.68 && o.lat < 51.52 && o.lng > 2.54 && o.lng < 5.95))
+    .map((o) => ({ ...o, distanceKm: 0 }))
+    .sort((a, b) => Number(b.openJobs > 0) - Number(a.openJobs > 0) || (a.municipality ?? "").localeCompare(b.municipality ?? "") || a.name.localeCompare(b.name));
+}
+
 /** Totalen voor het beheer: kantoren per sector en per bron. */
 export async function officeStats(): Promise<{ sector: string; n: number; verified: number; maps: number; osm: number }[]> {
   const rows = await db()
