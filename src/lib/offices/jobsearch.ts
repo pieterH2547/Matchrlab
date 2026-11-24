@@ -11,7 +11,8 @@ import { searchAdzuna, searchGoogleJobs, searchJooble, searchTargetedWeb } from 
 import { upsertJobs } from "@/lib/pipeline/jobstore";
 import type { NormalizedJob, Profile } from "@/lib/pipeline/types";
 import { distanceKm, extractPostcode, findPlaceName, geocode, municipalitiesWithin, strictlyWithinRadius, type GeoPoint } from "@/lib/geo";
-import { nameTokens, type OfficeSector } from "./classify";
+import { detectBrand, nameTokens, type OfficeSector } from "./classify";
+import { isAgencyDomain, isIntermediaryCompany, looksLikeIntermediary } from "@/lib/blocklist";
 
 /** Functietitels waarop werkgevers in de sector aanwerven; in groepjes van drie (zoveel titels bevraagt elke bron per keer). */
 export const SECTOR_TITLES: Record<OfficeSector, string[]> = {
@@ -47,11 +48,43 @@ export function sectorProfile(sector: OfficeSector, titles: string[], region: st
   };
 }
 
+/** Bureaus die de algemene lijst mist of te kort zijn voor de merkherkenning (live gezien in de zoekresultaten). */
+const AGENCY_NAMES = /\b(select hr|hays|skillflex|start people|unique( belgium)?|actief interim|bright plus|ctrl-?f|adecco|manpower|randstad|tempo-?team|accent|robert (half|walters)|michael page|page personnel|sbs skill ?builders|vivaldis|synergie|agilitas|konvert|forum jobs|asap|house of talents?|mise en place|talentus|profile group|experis|usg|hudson|mercuri urval|fmc|walters people|sander|jobmatch|kelly services|impact|daoust|trixxo|select projects|motion|linkedin|indeed|stepstone|jobat|vdab)\b/i;
+
+/** Titel hoort bij de sector (bank, krediet, verzekering, schade, beleggen)? Houdt ruis als "podoloog" buiten. */
+const SECTOR_TITLE = /(bank|krediet|credit|verzeker|assur|insurance|schade|claims?\b|polis|beleg|vermogen|private bank|relatiebeheer|financieel adviseur|financial advis|underwrit|hypothe|makelaar|leven\b|sparen)/i;
+
+/** Verzamelpagina in plaats van één vacature ("Alle vacatures in Mechelen", "… Jobs en vacatures"). */
+const LISTING_TITLE = /^(alle|nieuwe|\d+)\s+(vacatures|jobs)|jobs en vacatures|vacatures in\b.*\bop\b/i;
+
+/**
+ * Bruikbare sectorvacature van een eindwerkgever? Geen bureau (naam, url of "voor onze klant"-tekst), geen
+ * verzamelpagina, en de titel hoort bij bank of verzekeringen. Geldt bij het zoeken én bij het tonen.
+ */
+export function isDirectSectorJob(j: { title: string; url: string; companyName?: string | null; descriptionText?: string | null }): boolean {
+  if (LISTING_TITLE.test(j.title) || !SECTOR_TITLE.test(j.title)) return false;
+  const company = (j.companyName ?? "").trim();
+  if (company && (AGENCY_NAMES.test(company) || isIntermediaryCompany(company, j.url))) return false;
+  if (isAgencyDomain(j.url) || AGENCY_NAMES.test(new URL(j.url, "https://x").hostname.replace(/^www\./, "").split(".")[0])) return false;
+  const text = `${j.title} ${j.descriptionText ?? ""}`;
+  if (/(voor (een|onze) (klant|opdrachtgever)|pour (notre|un) client|for our client|interim|uitzend|freelance|tijdelijk|zelfstandige basis)/i.test(text.slice(0, 1500))) return false;
+  return !looksLikeIntermediary(j.title, j.descriptionText ?? "").yes;
+}
+
+/** Werkgever: de opgegeven naam, anders een bank- of verzekeringsmerk in de titel ("Klantendienstmedewerker Crelan in Mechelen"). */
+export function employerOf(j: { title: string; companyName?: string | null }): string | null {
+  const c = (j.companyName ?? "").trim();
+  if (c && !findPlaceName(c)) return c;
+  return detectBrand(j.title, "bank") ?? detectBrand(j.title, "verzekeringen");
+}
+
 export type SweepResult = {
   region: string;
   sectors: OfficeSector[];
   perSource: Record<string, { queries: number; raw: number; kept: number; error?: string; skipped?: string }>;
   found: number;
+  /** Na het weren van bureaus, verzamelpagina's en titels buiten de sector. */
+  direct: number;
   inRegion: number;
   stored: number;
 };
@@ -104,9 +137,10 @@ export async function sweepJobs(center: GeoPoint, region: string, radiusKm: numb
     }
   }
   // Enkel binnen de straal (locatietekst beslisbaar) en geen interim/uitzend.
-  const inRegion = all.filter((j) => !/interim|uitzend|freelance|tijdelijk/i.test(`${j.title} ${j.descriptionText ?? ""}`.slice(0, 400)) && (strictlyWithinRadius(j.location, region, radiusKm) || isSameRegionText(j.location, region)));
+  const direct = all.filter(isDirectSectorJob).map((j) => ({ ...j, companyName: employerOf(j) ?? undefined }));
+  const inRegion = direct.filter((j) => strictlyWithinRadius(j.location, region, radiusKm) || isSameRegionText(j.location, region));
   const stored = inRegion.length ? await upsertJobs(inRegion) : [];
-  return { region, sectors, perSource, found: all.length, inRegion: inRegion.length, stored: stored.length };
+  return { region, sectors, perSource, found: all.length, direct: direct.length, inRegion: inRegion.length, stored: stored.length };
 }
 
 function isSameRegionText(location: string | null | undefined, region: string): boolean {
@@ -126,7 +160,12 @@ export async function recentSweepJobs(days = 30): Promise<Job[]> {
     .select()
     .from(schema.jobs)
     .where(and(gt(schema.jobs.lastSeenAt, since), sql`${schema.jobs.raw}->>'sweep' is not null`, sql`coalesce(${schema.jobs.verificationStatus}, '') <> 'gesloten'`))
-    .limit(5000);
+    .limit(5000)
+    .then((rows) =>
+      rows
+        .filter((j) => isDirectSectorJob({ title: j.title, url: j.url, companyName: ((j.raw ?? {}) as { companyName?: string }).companyName, descriptionText: j.descriptionText }))
+        .map((j) => ({ ...j, raw: { ...((j.raw ?? {}) as Record<string, unknown>), companyName: employerOf({ title: j.title, companyName: ((j.raw ?? {}) as { companyName?: string }).companyName }) } })),
+    );
 }
 
 export type RegionJob = OfficeJob & { sector: string; matched: boolean };

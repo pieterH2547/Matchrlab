@@ -21,6 +21,7 @@ type Payload = {
   stats: { sector: string; n: number; verified: number; maps: number; osm: number }[];
   error?: string;
   all?: boolean;
+  jobs?: { title: string; url: string; source: string; company: string | null; location: string | null; email: string | null; sector: string; matched: boolean }[];
 };
 
 const SECTOR_LABEL: Record<OfficeSector, string> = {
@@ -312,7 +313,7 @@ export function MapExplorer() {
       const line = (j: Record<string, unknown>) => {
         const ps = j.perSource as Record<string, { queries: number; raw: number; kept: number; error?: string; skipped?: string }>;
         const parts = Object.entries(ps ?? {}).map(([k, v]) => `${k} ${v.kept}${v.error ? ` (${v.error})` : v.skipped ? ` (${v.skipped})` : ""}`);
-        return `Vacatures ${j.region}: ${j.found} gevonden, ${j.inRegion} in de regio, ${j.stored} bewaard · ${parts.join(", ")}.`;
+        return `Vacatures ${j.region}: ${j.found} gevonden, ${j.direct} van eindwerkgevers in de sector (bureaus en ruis geweerd), ${j.inRegion} in de regio, ${j.stored} bewaard · ${parts.join(", ")}.`;
       };
       if (all) {
         let i: number | null = 0;
@@ -557,6 +558,28 @@ export function MapExplorer() {
               Nog geen kantoren rond {data?.label}.
               {" Bouw de kaart hieronder op met Google Maps."}
             </div>
+          )}
+          {(data?.jobs?.length ?? 0) > 0 && jobsFilter !== "zonder" && (
+            <details className="border-b border-line px-5 py-2.5" open={jobsFilter === "met"}>
+              <summary className="cursor-pointer select-none text-[12px] font-semibold uppercase tracking-wide text-ok">
+                {data!.jobs!.length} vacatures van eindwerkgevers {data?.center ? "in de straal" : "in Vlaanderen"} <span className="font-normal normal-case text-ink-faint">· geen bureaus</span>
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {data!.jobs!.slice(0, 80).map((j) => (
+                  <li key={j.url} className="text-[12.5px] leading-snug">
+                    <a href={j.url} target="_blank" rel="noreferrer" className="font-medium text-navy hover:underline">
+                      {j.title}
+                    </a>
+                    <span className="block text-ink-soft">
+                      {j.company ?? "werkgever niet vermeld"}
+                      {j.location ? ` · ${j.location}` : ""} · {j.source}
+                      {j.matched ? " · gekoppeld aan kantoor" : ""}
+                      {j.email ? ` · ${j.email}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
           {offices.length > 0 && (
             <div className="px-3 py-2">

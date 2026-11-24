@@ -174,3 +174,22 @@ describe("kantorenkaart: vacatures koppelen aan kantoren", () => {
     expect(p.nearby_municipalities.length).toBeGreaterThan(0);
   });
 });
+
+describe("kantorenkaart: geen bureaus, enkel sectorvacatures", () => {
+  it("weert bureaus, verzamelpagina's en ruis; houdt eindwerkgevers", async () => {
+    const { isDirectSectorJob, employerOf } = await import("@/lib/offices/jobsearch");
+    const ok = (title: string, companyName: string | null, url = "https://be.jooble.org/jdp/1", descriptionText = "") => isDirectSectorJob({ title, companyName, url, descriptionText });
+    expect(ok("Adviseur Bank & Verzekeringen - Regio Haacht", "BNP Paribas Fortis")).toBe(true);
+    expect(ok("Claims Handler Automotive", "Aon")).toBe(true);
+    expect(ok("Verzekeringsadviseur met bedrijfswagen", "Select HR")).toBe(false);
+    expect(ok("KREDIETADVISEUR | Vast contract", "Manpower")).toBe(false);
+    expect(ok("Relatiebeheerder Ondernemingen", "HAYS")).toBe(false);
+    expect(ok("JUNIOR ADVISEUR VERZEKERINGEN", "SKILLFLEX")).toBe(false);
+    expect(ok("VERZEKERINGSADVISEUR", null, "https://www.skillflex.be/vacature/x")).toBe(false);
+    expect(ok("Schadebeheerder", "Kantoor X", "https://x.be/1", "Voor onze klant in Mechelen zoeken wij")).toBe(false);
+    expect(ok("Zelfstandige podoloog", "ZAS")).toBe(false);
+    expect(ok("Alle vacatures in Mechelen op Jobsonline.be", null, "https://www.jobsonline.be/x")).toBe(false);
+    expect(employerOf({ title: "Vacature Klantendienstmedewerker Crelan in Mechelen", companyName: null })).toBe("Crelan");
+    expect(employerOf({ title: "Adviseur", companyName: "Mechelen" })).toBeNull();
+  });
+});
