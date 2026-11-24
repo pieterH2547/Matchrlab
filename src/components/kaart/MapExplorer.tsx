@@ -244,6 +244,16 @@ export function MapExplorer() {
         const j = await post({ action: "osm_all", chunk });
         setLog((l) => [`OpenStreetMap ${j.label}: ${j.offices} kantoren → ${j.inserted} nieuw, ${j.merged} samengevoegd.${j.note ? ` ${j.note}` : ""}`, ...l]);
       }
+      for (const brand of ["argenta", "crelan"]) {
+        let offset: number | null = 0;
+        while (offset !== null && !stopRef.current) {
+          const from: number = offset;
+          setProgress(`${brand}.be vanaf pagina ${from}…`);
+          const j = await post({ action: "brand", brand, offset: from });
+          setLog((l) => [`${j.brand}: ${j.read} kantoorpagina's gelezen (${from + 1}–${Math.min(from + 40, Number(j.total))} van ${j.total}) → ${j.matched} bevestigd, ${j.added} nieuw.`, ...l]);
+          offset = typeof j.next === "number" ? j.next : null;
+        }
+      }
       for (let round = 1; round <= 60 && !stopRef.current; round++) {
         setProgress(`Google Maps ronde ${round}…`);
         const j = await post({ action: "build_all", sectors: sectors.join(","), budget: 100 });
@@ -253,6 +263,29 @@ export function MapExplorer() {
       }
       if (plaats) await load(plaats, radius);
       else await load("", radius);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setProgress(null);
+    setBusy(null);
+  }
+
+  /** Vacatures zoeken bij de kantoren binnen de straal: rondes van 16 websites tot de wachtrij leeg is (of Stop). */
+  async function runJobs() {
+    if (!plaats) return;
+    setBusy("jobs");
+    setError(null);
+    stopRef.current = false;
+    try {
+      for (let round = 1; round <= 40 && !stopRef.current; round++) {
+        setProgress(`Vacatures zoeken, ronde ${round}…`);
+        const res = await fetch("/api/kaart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "jobs", plaats, straal: radius }) });
+        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) throw new Error(String(j.error ?? `HTTP ${res.status}`));
+        setLog((l) => [`Vacatures ronde ${round}: ${j.domains} websites in de straal, ${j.crawled} bekeken, ${j.withJobs} met jobpagina, ${j.jobs} vacatures, ${j.errors} fouten, € ${j.costEur}; nog ${j.remaining} te gaan.`, ...l]);
+        if (Number(j.remaining) === 0 || Number(j.crawled) === 0) break;
+      }
+      await load(plaats, radius);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -486,6 +519,14 @@ export function MapExplorer() {
               >
                 {busy === "build" ? "Google Maps…" : "Google Maps afgaan"}
               </button>
+              <button type="button" disabled={!plaats || Boolean(busy)} onClick={runJobs} className="rounded-md border border-ok bg-[#dcfce7] px-3 py-1.5 font-medium text-ok hover:bg-[#bbf7d0] disabled:opacity-40">
+                {busy === "jobs" ? (progress ?? "bezig…") : "Vacatures zoeken bij deze kantoren"}
+              </button>
+              {busy === "jobs" && (
+                <button type="button" onClick={() => (stopRef.current = true)} className="rounded-md border border-line bg-white px-3 py-1.5 hover:bg-paper-soft">
+                  Stop na deze ronde
+                </button>
+              )}
               <button
                 type="button"
                 disabled={!plaats || Boolean(busy)}
@@ -540,8 +581,8 @@ export function MapExplorer() {
               </span>
             </div>
             <p className="mt-2 text-ink-faint leading-relaxed">
-              Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
-              profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
+              Vacatures zoeken: de websites van de kantoren in de straal gaan in de vacature-crawler (jobpagina, ATS, extractie), 16 per ronde, daarna dagelijks vers. Bij een merksite (KBC, Belfius, …) gelden de vacatures voor het merk, niet per se voor dit kantoor. Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
+              profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan de kantoorpagina's van argenta.be en crelan.be, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
             </p>
             {log.length > 0 && (
               <ul className="mt-2 space-y-0.5 text-ink-soft">
@@ -651,6 +692,7 @@ function OfficeRow({
           {o.openJobs > 0 && (
             <Badge tone="ok">
               {o.openJobs} vacature{o.openJobs === 1 ? "" : "s"}
+              {o.brandSite ? " bij het merk" : ""}
             </Badge>
           )}
           {o.verified && <Badge tone="gold">bevestigd</Badge>}

@@ -1,6 +1,8 @@
 export const SOURCE_LABEL: Record<string, string> = {
   google_maps: "Google Maps",
   osm: "OpenStreetMap",
+  "site:argenta": "argenta.be",
+  "site:crelan": "crelan.be",
   fvf: "FVF-gids",
   fsma: "FSMA-register",
   web: "web",

@@ -226,6 +226,21 @@ export type PlaceFull = {
  * Google Maps via Serper, maar dan elke vestiging (ook zonder website): voor de kantorenkaart, waar een
  * bankkantoor of makelaar zonder eigen site evengoed een kans is. Zelfde cache van 14 dagen.
  */
+/** Google Maps geeft soms een omweg (google.com/goto?url=… of /url?q=…) in plaats van de site zelf. */
+export function unwrapGoogleUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (/(^|\.)google\.[a-z.]+$/.test(u.hostname) && /^\/(goto|url)\/?$/.test(u.pathname)) {
+      const inner = u.searchParams.get("url") ?? u.searchParams.get("q");
+      return inner && /^https?:\/\//.test(inner) ? inner : null;
+    }
+    return /^https?:$/.test(u.protocol) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function placesSearchFull(query: string): Promise<PlaceFull[] | null> {
   const key = await getSetting("SERPER_API_KEY");
   if (!key) return null;
@@ -284,7 +299,7 @@ async function placesSearchFullLive(key: string, query: string): Promise<PlaceFu
     .filter((p) => (p.title ?? "").trim())
     .map((p) => ({
       name: (p.title ?? "").trim(),
-      website: p.website && /^https?:\/\//.test(p.website) ? p.website : null,
+      website: unwrapGoogleUrl(p.website),
       address: (p.address ?? "").trim(),
       category: (p.category ?? p.type ?? "").trim(),
       lat: typeof p.latitude === "number" ? p.latitude : null,

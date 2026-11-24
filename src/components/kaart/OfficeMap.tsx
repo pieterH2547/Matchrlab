@@ -108,7 +108,12 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
               </div>
               {o.address && <div className="mt-2 text-[12.5px] text-ink-soft">{o.address}</div>}
               <div className="mt-2 flex flex-wrap gap-1">
-                {o.openJobs > 0 && <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-medium text-ok">{o.openJobs} vacature{o.openJobs === 1 ? "" : "s"}</span>}
+                {o.openJobs > 0 && (
+                  <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-medium text-ok">
+                    {o.openJobs} vacature{o.openJobs === 1 ? "" : "s"}
+                    {o.brandSite ? " bij het merk" : ""}
+                  </span>
+                )}
                 {o.sources.map((s) => (
                   <span key={s} className="rounded-full bg-paper-soft px-2 py-0.5 text-[11px] text-ink-soft">
                     {SOURCE_LABEL[s] ?? s}

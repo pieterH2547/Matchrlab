@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { geocode, findPlaceName } from "@/lib/geo";
-import { buildOffices, buildOfficesFlanders, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
+import { BRAND_SITES } from "@/lib/offices/brands";
+import { buildOffices, buildOfficesFlanders, crawlOfficeJobs, importBrandSite, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
 import { FLANDERS_CHUNKS } from "@/lib/offices/osm";
 import type { OfficeSector } from "@/lib/offices/classify";
 
@@ -72,10 +73,14 @@ export async function POST(req: Request) {
       if (!r.rows) return NextResponse.json({ error: `Geen bruikbare rijen. Gevonden kolommen: ${r.columns.join(", ") || "geen"}.` }, { status: 400 });
       return NextResponse.json({ ok: true, ...r });
     }
-    const body = (await req.json().catch(() => ({}))) as { action?: string; plaats?: string; straal?: number; sectors?: string; budget?: number; chunk?: number };
+    const body = (await req.json().catch(() => ({}))) as { action?: string; plaats?: string; straal?: number; sectors?: string; budget?: number; chunk?: number; brand?: string; offset?: number };
     const budget = Math.max(0, Math.min(Number(body.budget) || 40, 150));
     // Heel Vlaanderen: geen plaats nodig.
     if (body.action === "build_all") return NextResponse.json({ ok: true, ...(await buildOfficesFlanders(parseSectors(body.sectors), budget)) });
+    if (body.action === "brand") {
+      if (!BRAND_SITES.some((b) => b.key === body.brand)) return NextResponse.json({ error: `Onbekend merk. Beschikbaar: ${BRAND_SITES.map((b) => b.key).join(", ")}.` }, { status: 400 });
+      return NextResponse.json({ ok: true, ...(await importBrandSite(String(body.brand), Math.max(0, Number(body.offset) || 0), 40)) });
+    }
     if (body.action === "osm_all") {
       const chunk = Math.max(0, Math.min(Number(body.chunk) || 0, FLANDERS_CHUNKS.length - 1));
       return NextResponse.json({ ok: true, chunk, chunks: FLANDERS_CHUNKS.length, ...(await importOsm({ chunk })) });
@@ -83,6 +88,7 @@ export async function POST(req: Request) {
     const place = resolvePlace(body.plaats);
     if (!place) return NextResponse.json({ error: "Onbekende plaats." }, { status: 400 });
     const radius = parseRadius(body.straal);
+    if (body.action === "jobs") return NextResponse.json({ ok: true, ...(await crawlOfficeJobs(place.center, radius, 16)) });
     if (body.action === "osm") return NextResponse.json({ ok: true, ...(await importOsm({ center: place.center, radiusKm: radius })) });
     if (body.action === "build") return NextResponse.json({ ok: true, ...(await buildOffices(place.center, radius, parseSectors(body.sectors), budget)) });
     if (body.action === "fvf") return NextResponse.json({ ok: true, ...(await enrichFromFvf(place.center, radius, Math.min(budget, 20))) });

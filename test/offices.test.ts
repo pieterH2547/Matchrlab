@@ -100,3 +100,23 @@ describe("kantorenkaart: OpenStreetMap", () => {
     expect(sameSpot(a, { sector: "verzekeringen", name: "Crelan Mechelen - Hellemans", brand: null, postcode: "2800", lat: 51.0281, lng: 4.4801 })).toBe(false);
   });
 });
+
+describe("kantorenkaart: Google-omweglinks", () => {
+  it("pakt google.com/goto en /url uit en laat gewone links staan", async () => {
+    const { unwrapGoogleUrl } = await import("@/lib/search");
+    expect(unwrapGoogleUrl("https://www.google.com/goto?url=https%3A%2F%2Fwww.vdk.be%2Fkantoren%2Fmechelen&opi=1")).toBe("https://www.vdk.be/kantoren/mechelen");
+    expect(unwrapGoogleUrl("https://www.google.com/url?q=https://argenta.be/x&sa=D")).toBe("https://argenta.be/x");
+    expect(unwrapGoogleUrl("https://www.argenta.be/nl/kantoren/x.html")).toBe("https://www.argenta.be/nl/kantoren/x.html");
+    expect(unwrapGoogleUrl("ftp://x")).toBeNull();
+    expect(unwrapGoogleUrl(null)).toBeNull();
+  });
+});
+
+describe("kantorenkaart: merksites", () => {
+  it("maakt een nette kantoornaam uit de paginatitel", async () => {
+    const { cleanName } = await import("@/lib/offices/brands");
+    expect(cleanName("Kantoor De Feyter bvba | Argenta", "Argenta")).toBe("Argenta De Feyter bvba");
+    expect(cleanName("Crelan Mechelen - Hellemans | Crelan", "Crelan")).toBe("Crelan Mechelen - Hellemans");
+    expect(cleanName("", "Argenta")).toBe("Argenta");
+  });
+});

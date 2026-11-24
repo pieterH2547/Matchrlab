@@ -12,9 +12,12 @@
 import { and, between, eq, inArray, like, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Office } from "@/lib/db/schema";
-import { cachedPlaceQueries, placesSearchFull, webSearch } from "@/lib/search";
+import { cachedPlaceQueries, placesSearchFull, unwrapGoogleUrl, webSearch } from "@/lib/search";
+import { isBlockedDomain } from "@/lib/blocklist";
+import { crawlQueue } from "@/lib/sector/process";
 import { BE_ZIP_NAMES } from "@/lib/geo-be";
 import { fetchOverpassDetailed, FLANDERS_CHUNKS, osmToOffice, overpassQuery } from "./osm";
+import { BRAND_SITES, readBrandPages } from "./brands";
 import { fetchPage } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
 import { distanceKm, municipalitiesWithin, type GeoPoint } from "@/lib/geo";
@@ -283,14 +286,14 @@ async function officesInBox(center: GeoPoint, radiusKm: number): Promise<Office[
     .where(and(between(schema.offices.lat, center.lat - dLat, center.lat + dLat), between(schema.offices.lng, center.lon - dLng, center.lon + dLng)));
 }
 
-type Listing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; website: string | null; enterpriseNumber: string | null };
+type Listing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; email?: string | null; website: string | null; enterpriseNumber: string | null };
 
 /**
  * Lijst van makelaars (uit FVF-gids of FSMA-register) tegen de kaart leggen: bestaand kantoor = bron toevoegen
  * (bevestigd), onbekend kantoor = toevoegen op het middelpunt van zijn postcode (bij benadering).
  */
-async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listing[], source: string, kind: OfficeKind): Promise<{ matched: number; added: number; outside: number }> {
-  const known = await officesInBox(center, radiusKm);
+async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listing[], source: string, kind: OfficeKind, opts: { sector?: OfficeSector; brand?: string } = {}): Promise<{ matched: number; added: number; outside: number }> {
+  const known = (await officesInBox(center, radiusKm)).filter((k) => !opts.sector || k.sector === opts.sector);
   const items: OfficeInput[] = [];
   let matched = 0;
   let outside = 0;
@@ -318,6 +321,7 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
         website: l.website,
         domain: l.website ? registrableDomain(l.website) : null,
         phone: l.phone,
+        email: l.email ?? null,
         enterpriseNumber: l.enterpriseNumber,
         rating: null,
         ratingCount: null,
@@ -326,12 +330,13 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
       });
       continue;
     }
+    const sector = opts.sector ?? "verzekeringen";
     items.push({
-      sector: "verzekeringen",
+      sector,
       kind,
       dedupeKey: officeKey({ enterpriseNumber: l.enterpriseNumber, name: l.name, postcode: l.postcode }),
       name: l.name,
-      brand: detectBrand(l.name, "verzekeringen"),
+      brand: opts.brand ?? detectBrand(l.name, sector),
       address: l.address,
       postcode: l.postcode,
       municipality: l.municipality ?? postcodeName(l.postcode),
@@ -341,6 +346,7 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
       website: l.website,
       domain: l.website ? registrableDomain(l.website) : null,
       phone: l.phone,
+      email: l.email ?? null,
       enterpriseNumber: l.enterpriseNumber,
       rating: null,
       ratingCount: null,
@@ -350,6 +356,23 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
   }
   const r = await upsertOffices(items);
   return { matched, added: r.inserted, outside };
+}
+
+/** Heel Vlaanderen als één gebied: middelpunt en straal die alles van De Panne tot Maasmechelen dekken. */
+const FLANDERS_CENTER: GeoPoint = { lat: 51.0, lon: 4.25 };
+const FLANDERS_RADIUS_KM = 130;
+
+/**
+ * Merksite (Argenta, Crelan, …): kantoorpagina's uit de sitemap lezen, `limit` per ronde vanaf `offset`.
+ * Kantoren worden over heel Vlaanderen samengevoegd met wat er al is (naam + postcode) of toegevoegd op het postcodemiddelpunt.
+ */
+export async function importBrandSite(key: string, offset = 0, limit = 40): Promise<{ brand: string; total: number; read: number; matched: number; added: number; outside: number; next: number | null }> {
+  const site = BRAND_SITES.find((b) => b.key === key);
+  if (!site) throw new Error("Onbekend merk.");
+  const { total, pages, next } = await readBrandPages(site, offset, limit);
+  const listings: Listing[] = pages.map((p) => ({ name: p.name, address: p.address, postcode: p.postcode, municipality: p.municipality, phone: p.phone, email: p.email, website: p.website, enterpriseNumber: null }));
+  const m = await mergeListings(FLANDERS_CENTER, FLANDERS_RADIUS_KM, listings, `site:${site.key}`, "bankkantoor", { sector: site.sector, brand: site.brand });
+  return { brand: site.brand, total, read: pages.length, ...m, next };
 }
 
 /** FSMA-register (al geïmporteerd via Sectoren) tegen de kaart leggen. */
@@ -424,6 +447,8 @@ export type OfficeView = {
   email: string | null;
   contactEmail: string | null;
   contactName: string | null;
+  /** De website is die van het merk (meerdere kantoren delen ze): vacatures gelden dan voor het merk, niet per se dit kantoor. */
+  brandSite: boolean;
   rating: number | null;
   ratingCount: number | null;
   sources: string[];
@@ -436,8 +461,16 @@ export type OfficeView = {
 
 /** Alle kantoren binnen de straal, dichtstbij eerst, met het aantal open vacatures van hun website (als we die kennen). */
 export async function officesNear(center: GeoPoint, radiusKm: number, sectors: OfficeSector[]): Promise<OfficeView[]> {
-  const rows = (await officesInBox(center, radiusKm)).filter((o) => o.lat !== null && o.lng !== null && sectors.includes(o.sector as OfficeSector));
+  const rows = (await officesInBox(center, radiusKm))
+    .filter((o) => o.lat !== null && o.lng !== null && sectors.includes(o.sector as OfficeSector))
+    .map((o) => {
+      // Oude rijen met een Google-omweg als website: hier rechtzetten (en bij de volgende Maps-ronde in de database).
+      const website = unwrapGoogleUrl(o.website);
+      return { ...o, website, domain: website ? registrableDomain(website) : null };
+    });
   const domains = Array.from(new Set(rows.map((r) => r.domain).filter((d): d is string => Boolean(d))));
+  const perDomain = new Map<string, number>();
+  for (const r of rows) if (r.domain) perDomain.set(r.domain, (perDomain.get(r.domain) ?? 0) + 1);
   const companies = domains.length
     ? await db()
         .select({ domain: schema.companies.domain, open: schema.companies.openJobsCount, jobsUrl: schema.companies.jobsUrl, contactEmail: schema.companies.contactEmail, contactName: schema.companies.contactName })
@@ -467,6 +500,7 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
       email: o.email,
       contactEmail: c?.contactEmail ?? null,
       contactName: c?.contactName ?? null,
+      brandSite: Boolean(o.domain && (perDomain.get(o.domain) ?? 0) >= 3),
       rating: o.rating,
       ratingCount: o.ratingCount,
       sources: o.sources,
@@ -478,6 +512,48 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
     });
   }
   return out.sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+/**
+ * Vacatures zoeken bij de kantoren binnen de straal: hun websites in de bestaande sectorwachtrij zetten
+ * (`companies` met sector + crawlStatus queued) en een ronde crawlen (jobpagina, ATS, extractie, upsertJobs).
+ * Daarna telt `openJobsCount` per domein mee op de kaart en houdt de dagelijkse herinventarisatie het vers.
+ */
+export async function crawlOfficeJobs(center: GeoPoint, radiusKm: number, limit = 16): Promise<{ domains: number; queued: number; crawled: number; withJobs: number; jobs: number; errors: number; costEur: number; remaining: number }> {
+  const rows = await officesInBox(center, radiusKm);
+  const byDomain = new Map<string, { name: string; sector: string; address: string | null; lat: number | null; lng: number | null }>();
+  for (const o of rows) {
+    if (o.lat === null || o.lng === null || distanceKm(center, { lat: o.lat, lon: o.lng }) > radiusKm) continue;
+    const website = unwrapGoogleUrl(o.website);
+    const domain = website ? registrableDomain(website) : null;
+    if (!domain || isBlockedDomain(domain) || byDomain.has(domain)) continue;
+    byDomain.set(domain, { name: o.brand ?? o.name, sector: o.sector, address: o.address, lat: o.lat, lng: o.lng });
+  }
+  const domains = Array.from(byDomain.keys());
+  if (!domains.length) return { domains: 0, queued: 0, crawled: 0, withJobs: 0, jobs: 0, errors: 0, costEur: 0, remaining: 0 };
+  const known = await db().select({ domain: schema.companies.domain, status: schema.companies.crawlStatus, last: schema.companies.lastCrawledAt }).from(schema.companies).where(inArray(schema.companies.domain, domains));
+  const knownMap = new Map(known.map((k) => [k.domain, k]));
+  // Nieuw of langer dan 7 dagen niet bekeken: in de wachtrij. De rest kent de kaart al.
+  const toQueue = domains.filter((d) => {
+    const k = knownMap.get(d);
+    return !k || !k.last || Date.now() - k.last.getTime() > 7 * 86400_000;
+  });
+  for (let i = 0; i < toQueue.length; i += 100) {
+    const chunk = toQueue.slice(i, i + 100);
+    await db()
+      .insert(schema.companies)
+      .values(chunk.map((d) => ({ domain: d, name: byDomain.get(d)!.name, sector: byDomain.get(d)!.sector, address: byDomain.get(d)!.address, lat: byDomain.get(d)!.lat, lng: byDomain.get(d)!.lng, discoveredVia: "kaart", crawlStatus: "queued", nextCheckAt: new Date() })))
+      .onConflictDoUpdate({
+        target: schema.companies.domain,
+        set: { sector: sql`coalesce(${schema.companies.sector}, excluded.sector)`, name: sql`coalesce(${schema.companies.name}, excluded.name)`, crawlStatus: "queued", nextCheckAt: new Date() },
+      });
+  }
+  const r = await crawlQueue(limit);
+  const left = await db()
+    .select({ n: sql<number>`count(*)` })
+    .from(schema.companies)
+    .where(and(inArray(schema.companies.domain, domains), eq(schema.companies.crawlStatus, "queued")));
+  return { domains: domains.length, queued: toQueue.length, ...r, remaining: Number(left[0]?.n ?? 0) };
 }
 
 /** Totalen voor het beheer: kantoren per sector en per bron. */
