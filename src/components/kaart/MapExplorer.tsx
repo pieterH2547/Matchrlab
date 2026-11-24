@@ -264,8 +264,8 @@ export function MapExplorer() {
   function exportCsv() {
     const cell = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const rows: (string | number | null | undefined)[][] = [
-      ["Sector", "Soort", "Naam", "Merk", "Adres", "Postcode", "Gemeente", "Afstand (km)", "Telefoon", "Website", "Vacaturepagina", "Open vacatures", "Bronnen", "Bevestigd", "Ligging"],
-      ...offices.map((o) => [SECTOR_LABEL[o.sector], KIND_LABEL[o.kind] ?? o.kind, o.name, o.brand, o.address, o.postcode, o.municipality, o.distanceKm, o.phone, o.website, o.careersUrl, o.openJobs, o.sources.map((x) => SOURCE_LABEL[x] ?? x).join(", "), o.verified ? "ja" : "", o.approximate ? "bij benadering" : "exact"]),
+      ["Status", "Sector", "Soort", "Naam", "Merk", "Adres", "Postcode", "Gemeente", "Afstand (km)", "Telefoon", "E-mail", "Contactpersoon", "Wervingsmail", "Website", "Vacaturepagina", "Open vacatures", "Bronnen", "Bevestigd", "Ligging"],
+      ...offices.map((o) => [o.openJobs > 0 ? "met vacatures" : "zonder vacature", SECTOR_LABEL[o.sector], KIND_LABEL[o.kind] ?? o.kind, o.name, o.brand, o.address, o.postcode, o.municipality, o.distanceKm, o.phone, o.email, o.contactName, o.contactEmail, o.website, o.careersUrl, o.openJobs, o.sources.map((x) => SOURCE_LABEL[x] ?? x).join(", "), o.verified ? "ja" : "", o.approximate ? "bij benadering" : "exact"]),
     ];
     const csv = "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
     const a = document.createElement("a");
@@ -449,15 +449,24 @@ export function MapExplorer() {
                   ⬇ Excel
                 </button>
               </div>
-              {offices.map((o) => (
-                <OfficeRow
-                  key={o.id}
-                  o={o}
-                  active={o.id === selectedId}
-                  onHover={setHoverId}
-                  onSelect={setSelectedId}
-                />
-              ))}
+              {(
+                [
+                  { key: "met", label: "Met open vacatures", tone: "text-ok", list: offices.filter((o) => o.openJobs > 0) },
+                  { key: "zonder", label: "Zonder vacature · potentiële werkgever", tone: "text-ink-faint", list: offices.filter((o) => o.openJobs === 0) },
+                ] as const
+              ).map((g) =>
+                g.list.length ? (
+                  <div key={g.key} className="mb-2">
+                    <div className={`sticky top-0 z-[1] flex items-baseline justify-between bg-sidebar/95 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide backdrop-blur ${g.tone}`}>
+                      <span>{g.label}</span>
+                      <span className="mono font-normal">{g.list.length}</span>
+                    </div>
+                    {g.list.map((o) => (
+                      <OfficeRow key={o.id} o={o} active={o.id === selectedId} onHover={setHoverId} onSelect={setSelectedId} />
+                    ))}
+                  </div>
+                ) : null,
+              )}
             </div>
           )}
         </div>
@@ -637,6 +646,7 @@ function OfficeRow({
           {o.brand ? ` · ${o.brand}` : ""}
           {o.municipality ? ` · ${o.municipality}` : ""}
         </span>
+        <ContactBits o={o} />
         <span className="mt-1 flex flex-wrap gap-1">
           {o.openJobs > 0 && (
             <Badge tone="ok">
@@ -651,6 +661,32 @@ function OfficeRow({
         </span>
       </span>
     </button>
+  );
+}
+
+/** Contactgegevens op één regel: telefoon, mail (wervingsadres als we dat kennen, anders het algemene), website. */
+function ContactBits({ o }: { o: OfficeView }) {
+  const mail = o.contactEmail ?? o.email;
+  if (!o.phone && !mail && !o.website) return null;
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11.5px] text-ink-soft" onClick={(e) => e.stopPropagation()}>
+      {o.phone && (
+        <a href={`tel:${o.phone.replace(/\s/g, "")}`} className="hover:text-navy">
+          ☏ {o.phone}
+        </a>
+      )}
+      {mail && (
+        <a href={`mailto:${mail}`} className="hover:text-navy">
+          ✉ {o.contactName ? `${o.contactName} · ` : ""}
+          {mail}
+        </a>
+      )}
+      {o.website && (
+        <a href={o.website} target="_blank" rel="noreferrer" className="hover:text-navy">
+          ↗ {o.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+        </a>
+      )}
+    </span>
   );
 }
 

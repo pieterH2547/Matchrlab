@@ -50,6 +50,7 @@ export type OfficeInput = {
   website: string | null;
   domain: string | null;
   phone: string | null;
+  email?: string | null;
   enterpriseNumber: string | null;
   rating: number | null;
   ratingCount: number | null;
@@ -133,6 +134,7 @@ export async function upsertOffices(items: OfficeInput[]): Promise<{ inserted: n
           website: sql`coalesce(${schema.offices.website}, excluded.website)`,
           domain: sql`coalesce(${schema.offices.domain}, excluded.domain)`,
           phone: sql`coalesce(${schema.offices.phone}, excluded.phone)`,
+          email: sql`coalesce(${schema.offices.email}, excluded.email)`,
           enterpriseNumber: sql`coalesce(${schema.offices.enterpriseNumber}, excluded.enterprise_number)`,
           rating: sql`coalesce(excluded.rating, ${schema.offices.rating})`,
           ratingCount: sql`coalesce(excluded.rating_count, ${schema.offices.ratingCount})`,
@@ -419,6 +421,9 @@ export type OfficeView = {
   approximate: boolean;
   website: string | null;
   phone: string | null;
+  email: string | null;
+  contactEmail: string | null;
+  contactName: string | null;
   rating: number | null;
   ratingCount: number | null;
   sources: string[];
@@ -434,7 +439,10 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
   const rows = (await officesInBox(center, radiusKm)).filter((o) => o.lat !== null && o.lng !== null && sectors.includes(o.sector as OfficeSector));
   const domains = Array.from(new Set(rows.map((r) => r.domain).filter((d): d is string => Boolean(d))));
   const companies = domains.length
-    ? await db().select({ domain: schema.companies.domain, open: schema.companies.openJobsCount, jobsUrl: schema.companies.jobsUrl }).from(schema.companies).where(inArray(schema.companies.domain, domains))
+    ? await db()
+        .select({ domain: schema.companies.domain, open: schema.companies.openJobsCount, jobsUrl: schema.companies.jobsUrl, contactEmail: schema.companies.contactEmail, contactName: schema.companies.contactName })
+        .from(schema.companies)
+        .where(inArray(schema.companies.domain, domains))
     : [];
   const byDomain = new Map(companies.map((c) => [c.domain, c]));
   const out: OfficeView[] = [];
@@ -456,6 +464,9 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
       approximate: o.geoPrecision !== "exact",
       website: o.website,
       phone: o.phone,
+      email: o.email,
+      contactEmail: c?.contactEmail ?? null,
+      contactName: c?.contactName ?? null,
       rating: o.rating,
       ratingCount: o.ratingCount,
       sources: o.sources,

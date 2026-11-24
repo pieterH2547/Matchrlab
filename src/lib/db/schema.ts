@@ -158,6 +158,8 @@ export const offices = pgTable(
     website: text("website"),
     domain: text("domain"),
     phone: text("phone"),
+    /** Algemeen mailadres van het kantoor (uit OpenStreetMap of een gids); het wervingsadres komt uit `companies`. */
+    email: text("email"),
     enterpriseNumber: text("enterprise_number"),
     rating: real("rating"),
     ratingCount: integer("rating_count"),

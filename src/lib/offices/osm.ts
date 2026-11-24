@@ -3,7 +3,6 @@
  * (office=insurance) en financieel adviseur (office=financial_advisor), met naam, merk, adres en exacte ligging.
  * Gratis, zonder key, en dekt heel België in één keer. Bronvermelding: © OpenStreetMap-bijdragers (ODbL).
  */
-import { fetchRaw } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
 import type { GeoPoint } from "@/lib/geo";
 import { BE_POSTCODES } from "@/lib/geo-be";
@@ -31,16 +30,28 @@ export function overpassQuery(area: { around: { center: GeoPoint; radiusKm: numb
   return `[out:json][timeout:90];(${SELECT.map((s) => `nwr${s}${where};`).join("")});out center tags;`;
 }
 
-/** Overpass bevragen; de eerste spiegel die antwoordt wint. Geeft null als geen enkele antwoordt. */
-export async function fetchOverpass(query: string): Promise<OsmElement[] | null> {
+/**
+ * Overpass bevragen; de eerste spiegel die antwoordt wint. Geeft null als geen enkele antwoordt.
+ * Eigen fetch, niet fetchRaw: een provincie is meer dan de 1,5 MB die de paginahelper afkapt.
+ */
+export async function fetchOverpass(query: string, timeoutMs = 150_000): Promise<OsmElement[] | null> {
   for (const url of MIRRORS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const r = await fetchRaw(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `data=${encodeURIComponent(query)}` }, 120_000);
-      if (r.status < 200 || r.status >= 300) continue;
-      const data = JSON.parse(r.body) as { elements?: OsmElement[] };
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "Matchr kantorenkaart (RecruitrLAB, intern)" },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: ctrl.signal,
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as { elements?: OsmElement[] };
       if (Array.isArray(data.elements)) return data.elements;
     } catch {
       /* volgende spiegel */
+    } finally {
+      clearTimeout(timer);
     }
   }
   return null;
@@ -104,6 +115,7 @@ export function osmToOffice(e: OsmElement): OfficeInput | null {
     website,
     domain: website ? registrableDomain(website) : null,
     phone: (t.phone ?? t["contact:phone"] ?? "").trim().split(";")[0] || null,
+    email: (t.email ?? t["contact:email"] ?? "").trim().split(";")[0].toLowerCase() || null,
     enterpriseNumber: null,
     rating: null,
     ratingCount: null,

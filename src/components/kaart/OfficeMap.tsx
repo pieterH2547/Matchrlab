@@ -133,6 +133,12 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
                     {o.phone}
                   </a>
                 )}
+                {(o.contactEmail ?? o.email) && (
+                  <a href={`mailto:${o.contactEmail ?? o.email}`} className="text-ink-soft break-all">
+                    {o.contactName ? `${o.contactName} · ` : ""}
+                    {o.contactEmail ?? o.email}
+                  </a>
+                )}
                 <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.name} ${o.address ?? ""}`)}`} target="_blank" rel="noreferrer" className="text-ink-soft">
                   Google Maps ↗
                 </a>

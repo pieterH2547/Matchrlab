@@ -1,0 +1,1 @@
+ALTER TABLE "offices" ADD COLUMN "email" text;

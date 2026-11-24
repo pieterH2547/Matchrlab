@@ -213,8 +213,13 @@ function OfficeList({ offices }: { offices: OfficeView[] }) {
   const [all, setAll] = useState(false);
   const sorted = [...offices].sort((a, b) => Number(b.openJobs > 0) - Number(a.openJobs > 0) || a.distanceKm - b.distanceKm);
   const shown = all ? sorted : sorted.slice(0, 12);
+  const withJobs = sorted.filter((o) => o.openJobs > 0).length;
   return (
     <div>
+      <div className="mt-2 flex flex-wrap gap-2 text-[12px]">
+        <span className="rounded-full bg-[#dcfce7] px-2.5 py-0.5 font-medium text-ok">{withJobs} met open vacatures</span>
+        <span className="rounded-full bg-paper-soft px-2.5 py-0.5 font-medium text-ink-soft">{sorted.length - withJobs} zonder vacature (potentiële werkgever)</span>
+      </div>
       <ul className="divide-y divide-line">
         {shown.map((o) => (
           <li key={o.id} className="flex items-start gap-2.5 py-2.5 text-[14px]">
@@ -234,18 +239,28 @@ function OfficeList({ offices }: { offices: OfficeView[] }) {
                 {OFFICE_KIND[o.kind] ?? o.kind}
                 {o.brand ? ` · ${o.brand}` : ""}
                 {o.address ? ` · ${o.address}` : o.municipality ? ` · ${o.municipality}` : ""}
-                {o.phone ? ` · ${o.phone}` : ""}
               </span>
-              {(o.openJobs > 0 || o.verified) && (
-                <span className="mt-0.5 flex flex-wrap gap-1 text-[11px]">
+              {(o.phone || o.contactEmail || o.email) && (
+                <span className="block text-[12.5px] text-ink-soft">
+                  {o.phone ? `☏ ${o.phone}` : ""}
+                  {o.phone && (o.contactEmail || o.email) ? " · " : ""}
+                  {(o.contactEmail || o.email) && (
+                    <a href={`mailto:${o.contactEmail ?? o.email}`} className="text-navy underline decoration-gold decoration-2 underline-offset-2">
+                      {o.contactName ? `${o.contactName} · ` : ""}
+                      {o.contactEmail ?? o.email}
+                    </a>
+                  )}
+                </span>
+              )}
+              <span className="mt-0.5 flex flex-wrap gap-1 text-[11px]">
+                  {o.openJobs === 0 && <span className="rounded-full bg-paper-soft px-2 py-0.5 text-ink-faint">zonder vacature</span>}
                   {o.openJobs > 0 && (
                     <a href={o.careersUrl ?? o.website ?? "#"} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#dcfce7] px-2 py-0.5 font-medium text-ok">
                       {o.openJobs} open vacature{o.openJobs === 1 ? "" : "s"} ↗
                     </a>
                   )}
                   {o.verified && <span className="rounded-full bg-gold-soft px-2 py-0.5 font-medium text-[#8a6300]">bevestigd</span>}
-                </span>
-              )}
+              </span>
             </span>
           </li>
         ))}
@@ -354,7 +369,10 @@ export function matchesAsText(run: Pick<RunView, "candidateName" | "profile" | "
       .join("\n"),
   );
   const emps = (run.state.employers ?? []).map((e) => `- ${e.name}${e.municipality ? `, ${e.municipality}` : ""} · ${e.website}${e.contactEmail ? ` · ${e.contactName ? `${e.contactName}, ` : ""}${e.contactEmail}` : ""}`);
-  const offs = (run.state.offices ?? []).map((o) => `- ${o.name} (${OFFICE_KIND[o.kind] ?? o.kind}${o.brand ? `, ${o.brand}` : ""}) · ${o.address ?? o.municipality ?? ""} · ${o.distanceKm} km${o.openJobs > 0 ? ` · ${o.openJobs} open vacature${o.openJobs === 1 ? "" : "s"}` : ""}${o.website ? ` · ${o.website}` : ""}${o.phone ? ` · ${o.phone}` : ""}`);
+  const offs = (run.state.offices ?? []).map(
+    (o) =>
+      `- ${o.name} (${OFFICE_KIND[o.kind] ?? o.kind}${o.brand ? `, ${o.brand}` : ""}) · ${o.address ?? o.municipality ?? ""} · ${o.distanceKm} km · ${o.openJobs > 0 ? `${o.openJobs} open vacature${o.openJobs === 1 ? "" : "s"}` : "zonder vacature"}${o.website ? ` · ${o.website}` : ""}${o.phone ? ` · ${o.phone}` : ""}${o.contactEmail || o.email ? ` · ${o.contactName ? `${o.contactName}, ` : ""}${o.contactEmail ?? o.email}` : ""}`,
+  );
   return [
     head,
     "",
@@ -368,9 +386,9 @@ export function matchesAsText(run: Pick<RunView, "candidateName" | "profile" | "
 /** Rijen voor de Excel-export: vacatures, dan kantoren (kansen). Eén tabel met een typekolom. */
 export function csvRows(run: Pick<RunView, "matches" | "state">): (string | number | null | undefined)[][] {
   return [
-    ["Type", "Score", "Functie / soort kantoor", "Werkgever", "Merk", "Locatie", "Afstand (km)", "Waarom match", "Risico", "Contactpersoon", "E-mail", "Telefoon", "Link", "Verificatie / bronnen", "Open vacatures"],
-    ...run.matches.map((m) => ["Vacature", Math.round(m.score / 10), m.title, m.company, "", m.location, "", m.argument || m.reason, m.risk, m.contactName, m.contactEmail, "", m.url, m.verification, ""]),
-    ...(run.state.offices ?? []).map((o) => ["Kantoor", "", OFFICE_KIND[o.kind] ?? o.kind, o.name, o.brand, o.address ?? o.municipality, o.distanceKm, "", "", "", "", o.phone, o.careersUrl ?? o.website, o.sources.join(", ") + (o.verified ? " (bevestigd)" : ""), o.openJobs]),
+    ["Type", "Status", "Score", "Functie / soort kantoor", "Werkgever", "Merk", "Locatie", "Afstand (km)", "Waarom match", "Risico", "Contactpersoon", "E-mail", "Telefoon", "Link", "Verificatie / bronnen", "Open vacatures"],
+    ...run.matches.map((m) => ["Vacature", "vacature", Math.round(m.score / 10), m.title, m.company, "", m.location, "", m.argument || m.reason, m.risk, m.contactName, m.contactEmail, "", m.url, m.verification, ""]),
+    ...(run.state.offices ?? []).map((o) => ["Kantoor", o.openJobs > 0 ? "met vacatures" : "zonder vacature", "", OFFICE_KIND[o.kind] ?? o.kind, o.name, o.brand, o.address ?? o.municipality, o.distanceKm, "", "", o.contactName, o.contactEmail ?? o.email, o.phone, o.careersUrl ?? o.website, o.sources.join(", ") + (o.verified ? " (bevestigd)" : ""), o.openJobs]),
   ];
 }
 
