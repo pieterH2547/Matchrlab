@@ -134,3 +134,14 @@ describe("kantorenkaart: merkpagina's (Argenta, Crelan)", () => {
     expect(p?.phone).toContain("+32 59/559900");
   });
 });
+
+describe("kantorenkaart: OSM-tegels", () => {
+  it("dekt Vlaanderen in aaneensluitende kleine tegels", async () => {
+    const { FLANDERS_TILES } = await import("@/lib/offices/osm");
+    expect(FLANDERS_TILES.length).toBeGreaterThan(40);
+    expect(FLANDERS_TILES[0]).toEqual([50.68, 2.54, 50.89, 2.784]);
+    const last = FLANDERS_TILES[FLANDERS_TILES.length - 1];
+    expect(last[2]).toBe(51.52);
+    expect(last[3]).toBe(5.95);
+  });
+});

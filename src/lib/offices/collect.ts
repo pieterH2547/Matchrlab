@@ -16,7 +16,7 @@ import { cachedPlaceQueries, placesSearchFull, unwrapGoogleUrl, webSearch } from
 import { isBlockedDomain } from "@/lib/blocklist";
 import { crawlQueue } from "@/lib/sector/process";
 import { BE_ZIP_NAMES } from "@/lib/geo-be";
-import { fetchOverpassDetailed, FLANDERS_CHUNKS, osmToOffice, overpassQuery } from "./osm";
+import { fetchOverpassDetailed, FLANDERS_CHUNKS, FLANDERS_TILES, osmToOffice, overpassQuery } from "./osm";
 import { BRAND_SITES, readBrandPages } from "./brands";
 import { fetchPage } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
@@ -560,6 +560,34 @@ export async function crawlOfficeJobs(center: GeoPoint, radiusKm: number, limit 
     .from(schema.companies)
     .where(and(inArray(schema.companies.domain, domains), eq(schema.companies.crawlStatus, "queued")));
   return { domains: domains.length, queued: toQueue.length, ...r, remaining: Number(left[0]?.n ?? 0) };
+}
+
+/**
+ * Heel Vlaanderen via OpenStreetMap, tegel per tegel vanaf `from`, tot het tijdsbudget op is. `next` = waar de
+ * volgende aanroep verdergaat (null = klaar). Een tegel die niet antwoordt wordt één keer overgeslagen en gemeld.
+ */
+export async function importOsmTiles(from: number, budgetMs = 200_000): Promise<{ from: number; done: number; tiles: number; offices: number; merged: number; inserted: number; updated: number; failed: number[]; next: number | null }> {
+  const t0 = Date.now();
+  let i = Math.max(0, Math.min(from, FLANDERS_TILES.length));
+  const totals = { offices: 0, merged: 0, inserted: 0, updated: 0 };
+  const failed: number[] = [];
+  let done = 0;
+  while (i < FLANDERS_TILES.length && Date.now() - t0 < budgetMs) {
+    const { elements } = await fetchOverpassDetailed(overpassQuery({ bbox: FLANDERS_TILES[i] }), 45_000);
+    if (!elements) failed.push(i);
+    else {
+      const items = elements.map(osmToOffice).filter((x): x is OfficeInput => x !== null);
+      const m = await mergeIntoKnown(items);
+      const r = await upsertOffices(m.items);
+      totals.offices += items.length;
+      totals.merged += m.merged;
+      totals.inserted += r.inserted;
+      totals.updated += r.updated;
+    }
+    done++;
+    i++;
+  }
+  return { from, done, tiles: FLANDERS_TILES.length, ...totals, failed, next: i < FLANDERS_TILES.length ? i : null };
 }
 
 /** Totalen voor het beheer: kantoren per sector en per bron. */

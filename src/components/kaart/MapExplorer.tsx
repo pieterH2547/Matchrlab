@@ -239,10 +239,13 @@ export function MapExplorer() {
         if (!res.ok) throw new Error(String(j.error ?? `HTTP ${res.status}`));
         return j;
       };
-      for (let chunk = 0; chunk < 6 && !stopRef.current; chunk++) {
-        setProgress(`OpenStreetMap ${chunk + 1}/6…`);
-        const j = await post({ action: "osm_all", chunk });
-        setLog((l) => [`OpenStreetMap ${j.label}: ${j.offices} kantoren → ${j.inserted} nieuw, ${j.merged} samengevoegd.${j.note ? ` ${j.note}` : ""}`, ...l]);
+      let tile: number | null = 0;
+      while (tile !== null && !stopRef.current) {
+        const from: number = tile;
+        setProgress(`OpenStreetMap tegel ${from + 1}…`);
+        const j = await post({ action: "osm_all", offset: from });
+        setLog((l) => [`OpenStreetMap tegels ${from + 1}–${from + Number(j.done)} van ${j.tiles}: ${j.offices} kantoren → ${j.inserted} nieuw, ${j.merged} samengevoegd${(j.failed as number[]).length ? `; ${(j.failed as number[]).length} tegel(s) zonder antwoord` : ""}.`, ...l]);
+        tile = typeof j.next === "number" ? j.next : null;
       }
       for (const brand of ["argenta", "crelan"]) {
         let offset: number | null = 0;

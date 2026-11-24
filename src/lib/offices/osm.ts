@@ -23,11 +23,27 @@ export const FLANDERS_CHUNKS: { label: string; bbox: [number, number, number, nu
   { label: "Limburg-zuid", bbox: [50.68, 5.15, 51.05, 5.95] },
 ];
 
+/**
+ * Vlaanderen in kleine tegels (±0,21° × 0,24°, zo'n 23 × 17 km): één Overpass-vraag per tegel blijft klein en snel.
+ * Grote provincie-vragen vielen weg (verbinding verbroken of time-out). [zuid, west, noord, oost]
+ */
+export const FLANDERS_TILES: [number, number, number, number][] = (() => {
+  const out: [number, number, number, number][] = [];
+  const [s0, w0, n1, e1] = [50.68, 2.54, 51.52, 5.95];
+  const dLat = 0.21;
+  const dLon = 0.244;
+  for (let lat = s0; lat < n1 - 1e-9; lat += dLat) for (let lon = w0; lon < e1 - 1e-9; lon += dLon) out.push([round(lat), round(lon), round(Math.min(lat + dLat, n1)), round(Math.min(lon + dLon, e1))]);
+  return out;
+})();
+function round(x: number): number {
+  return Math.round(x * 1000) / 1000;
+}
+
 const SELECT = ['["amenity"="bank"]', '["office"="insurance"]', '["office"="financial_advisor"]'];
 
 export function overpassQuery(area: { around: { center: GeoPoint; radiusKm: number } } | { bbox: [number, number, number, number] }): string {
   const where = "around" in area ? `(around:${Math.round(area.around.radiusKm * 1000)},${area.around.center.lat},${area.around.center.lon})` : `(${area.bbox.join(",")})`;
-  return `[out:json][timeout:90];(${SELECT.map((s) => `nwr${s}${where};`).join("")});out center tags;`;
+  return `[out:json][timeout:60];(${SELECT.map((s) => `nwr${s}${where};`).join("")});out center tags;`;
 }
 
 /**
