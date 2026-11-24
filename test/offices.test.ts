@@ -78,3 +78,25 @@ describe("kantorenkaart: FVF-profielpagina's lezen", () => {
     expect(parseListingFromText("Welkom op onze site", "Home")).toBeNull();
   });
 });
+
+describe("kantorenkaart: OpenStreetMap", () => {
+  it("zet een bank- en een verzekeringselement om naar kantoren", async () => {
+    const { osmToOffice, overpassQuery } = await import("@/lib/offices/osm");
+    const bank = osmToOffice({ type: "node", id: 1, lat: 51.03, lon: 4.48, tags: { amenity: "bank", name: "KBC Bank Mechelen", brand: "KBC", "addr:street": "Bruul", "addr:housenumber": "1", "addr:postcode": "2800", "addr:city": "Mechelen", website: "https://www.kbc.be", phone: "+32 15 00 00 00" } });
+    expect(bank).toMatchObject({ sector: "bank", kind: "bankkantoor", dedupeKey: "osm:node/1", brand: "KBC", address: "Bruul 1, 2800 Mechelen", postcode: "2800", domain: "kbc.be", source: "osm" });
+    const ins = osmToOffice({ type: "way", id: 2, center: { lat: 51.03, lon: 4.48 }, tags: { office: "insurance", name: "Verzekeringen Peeters" } });
+    expect(ins?.kind).toBe("verzekeringsmakelaar");
+    expect(ins?.postcode).toBe("2800");
+    expect(osmToOffice({ type: "node", id: 3, lat: 51.03, lon: 4.48, tags: { amenity: "atm", name: "KBC" } })).toBeNull();
+    expect(osmToOffice({ type: "node", id: 4, lat: 50.63, lon: 5.57, tags: { amenity: "bank", name: "Belfius Liège", "addr:postcode": "4000" } })).toBeNull();
+    expect(overpassQuery({ around: { center: { lat: 51, lon: 4 }, radiusKm: 20 } })).toContain("(around:20000,51,4)");
+  });
+  it("herkent dezelfde vestiging uit twee bronnen", async () => {
+    const { sameSpot } = await import("@/lib/offices/collect");
+    const a = { sector: "bank", name: "Crelan Mechelen - Hellemans", brand: "Crelan", postcode: "2800", lat: 51.0281, lng: 4.4801 };
+    expect(sameSpot(a, { sector: "bank", name: "Kantoor Hellemans Mechelen", brand: null, postcode: "2800", lat: 51.0283, lng: 4.4803 })).toBe(true);
+    expect(sameSpot(a, { sector: "bank", name: "Crelan", brand: "Crelan", postcode: null, lat: 51.0282, lng: 4.4802 })).toBe(true);
+    expect(sameSpot(a, { sector: "bank", name: "Crelan Lier", brand: "Crelan", postcode: "2500", lat: 51.13, lng: 4.57 })).toBe(false);
+    expect(sameSpot(a, { sector: "verzekeringen", name: "Crelan Mechelen - Hellemans", brand: null, postcode: "2800", lat: 51.0281, lng: 4.4801 })).toBe(false);
+  });
+});

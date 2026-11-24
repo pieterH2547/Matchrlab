@@ -14,7 +14,7 @@ import { recordSearches, reserveBraveQueries } from "@/lib/budget";
 import { fetchJson, fetchRaw } from "@/lib/fetch";
 import { getSetting } from "@/lib/settings";
 import { db, schema } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import { countCall, noteFailure } from "@/lib/usage";
 import { resolveOpenAIModel } from "@/lib/openaiModels";
 
@@ -243,6 +243,17 @@ export async function placesSearchFull(query: string): Promise<PlaceFull[] | nul
 /** Staat deze Maps-vraag al in de cache? Dan kost opnieuw opbouwen niets. */
 export async function placesSearchCached(query: string): Promise<boolean> {
   return (await readSearchCache<PlaceFull[]>(`mapsfull:${query.trim().toLowerCase()}`, 14).catch(() => null)) !== null;
+}
+
+/** Alle Maps-vragen die nog in de cache zitten (genormaliseerd), in één databaseronde: voor grote plannen (heel Vlaanderen). */
+export async function cachedPlaceQueries(days = 14): Promise<Set<string>> {
+  const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+  const rows = await db()
+    .select({ key: schema.searchCache.key })
+    .from(schema.searchCache)
+    .where(and(eq(schema.searchCache.kind, "mapsfull"), gt(schema.searchCache.createdAt, since)))
+    .catch(() => []);
+  return new Set(rows.map((r) => r.key.slice("mapsfull:".length)));
 }
 
 async function placesSearchFullLive(key: string, query: string): Promise<PlaceFull[] | null> {

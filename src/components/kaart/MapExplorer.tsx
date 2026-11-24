@@ -18,7 +18,7 @@ type Payload = {
   label: string | null;
   radius: number;
   offices: OfficeView[];
-  stats: { sector: string; n: number; verified: number }[];
+  stats: { sector: string; n: number; verified: number; maps: number; osm: number }[];
   error?: string;
 };
 
@@ -54,6 +54,8 @@ export function MapExplorer() {
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const stopRef = useRef(false);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const load = useCallback(async (p: string, r: number) => {
     setLoading(true);
@@ -154,7 +156,7 @@ export function MapExplorer() {
     );
   }
 
-  async function act(action: "build" | "fvf" | "fsma") {
+  async function act(action: "build" | "fvf" | "fsma" | "osm") {
     if (!plaats) return;
     setBusy(action);
     setError(null);
@@ -182,6 +184,11 @@ export function MapExplorer() {
       if (action === "fvf")
         setLog((l) => [
           `FVF-gids: ${j.searches} zoekopdrachten, ${j.pages} pagina's gelezen, ${j.parsed} makelaars herkend → ${j.matched} bevestigd, ${j.added} nieuw, ${j.outside} buiten de straal.${j.note ? ` ${j.note}` : ""} ${s} s.`,
+          ...l,
+        ]);
+      if (action === "osm")
+        setLog((l) => [
+          `OpenStreetMap: ${j.elements} objecten, ${j.offices} kantoren → ${j.inserted} nieuw, ${j.merged} samengevoegd met een bekende vestiging, ${j.updated} bijgewerkt.${j.note ? ` ${j.note}` : ""} ${s} s.`,
           ...l,
         ]);
       if (action === "fsma")
@@ -220,7 +227,56 @@ export function MapExplorer() {
     setBusy(null);
   }
 
+  /** Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan Google Maps in rondes tot alles gedaan is (of Stop). */
+  async function runFlanders() {
+    setBusy("vlaanderen");
+    setError(null);
+    stopRef.current = false;
+    try {
+      const post = async (body: Record<string, unknown>) => {
+        const res = await fetch("/api/kaart", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) throw new Error(String(j.error ?? `HTTP ${res.status}`));
+        return j;
+      };
+      for (let chunk = 0; chunk < 6 && !stopRef.current; chunk++) {
+        setProgress(`OpenStreetMap ${chunk + 1}/6…`);
+        const j = await post({ action: "osm_all", chunk });
+        setLog((l) => [`OpenStreetMap ${j.label}: ${j.offices} kantoren → ${j.inserted} nieuw, ${j.merged} samengevoegd.${j.note ? ` ${j.note}` : ""}`, ...l]);
+      }
+      for (let round = 1; round <= 60 && !stopRef.current; round++) {
+        setProgress(`Google Maps ronde ${round}…`);
+        const j = await post({ action: "build_all", sectors: sectors.join(","), budget: 100 });
+        const rest = Number(j.skippedForBudget);
+        setLog((l) => [`Google Maps Vlaanderen ronde ${round}: ${j.live} nieuwe zoekopdrachten, ${j.found} vestigingen → ${j.inserted} nieuw, ${j.merged} samengevoegd; nog ${rest} zoekopdrachten te gaan.`, ...l]);
+        if (rest === 0) break;
+      }
+      if (plaats) await load(plaats, radius);
+      else await load("", radius);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setProgress(null);
+    setBusy(null);
+  }
+
+  /** De getoonde lijst als CSV voor Excel (puntkomma en BOM). */
+  function exportCsv() {
+    const cell = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows: (string | number | null | undefined)[][] = [
+      ["Sector", "Soort", "Naam", "Merk", "Adres", "Postcode", "Gemeente", "Afstand (km)", "Telefoon", "Website", "Vacaturepagina", "Open vacatures", "Bronnen", "Bevestigd", "Ligging"],
+      ...offices.map((o) => [SECTOR_LABEL[o.sector], KIND_LABEL[o.kind] ?? o.kind, o.name, o.brand, o.address, o.postcode, o.municipality, o.distanceKm, o.phone, o.website, o.careersUrl, o.openJobs, o.sources.map((x) => SOURCE_LABEL[x] ?? x).join(", "), o.verified ? "ja" : "", o.approximate ? "bij benadering" : "exact"]),
+    ];
+    const csv = "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `kantoren-${(data?.label ?? "kaart").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${radius}km.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
   const empty = Boolean(data && data.center && data.offices.length === 0);
+  const totals = (data?.stats ?? []).reduce((a, b) => ({ n: a.n + b.n, maps: a.maps + b.maps, osm: a.osm + b.osm }), { n: 0, maps: 0, osm: 0 });
 
   return (
     <div className="flex h-screen w-full flex-col md:flex-row overflow-hidden bg-canvas">
@@ -389,6 +445,9 @@ export function MapExplorer() {
                 <span className="text-[11.5px] text-ink-faint shrink-0">
                   {offices.length} · {counts.brands} merken
                 </span>
+                <button type="button" onClick={exportCsv} className="shrink-0 rounded-md border border-line bg-white px-2 py-0.5 text-[11.5px] font-medium text-navy hover:border-navy" title="De getoonde lijst als Excel-bestand">
+                  ⬇ Excel
+                </button>
               </div>
               {offices.map((o) => (
                 <OfficeRow
@@ -421,6 +480,14 @@ export function MapExplorer() {
               <button
                 type="button"
                 disabled={!plaats || Boolean(busy)}
+                onClick={() => act("osm")}
+                className="rounded-md border border-line bg-white px-3 py-1.5 hover:bg-paper-soft disabled:opacity-40"
+              >
+                {busy === "osm" ? "OpenStreetMap…" : "OpenStreetMap"}
+              </button>
+              <button
+                type="button"
+                disabled={!plaats || Boolean(busy)}
                 onClick={() => act("fvf")}
                 className="rounded-md border border-line bg-white px-3 py-1.5 hover:bg-paper-soft disabled:opacity-40"
               >
@@ -449,12 +516,23 @@ export function MapExplorer() {
                 />
               </label>
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-3">
+              <span className="mr-1 font-medium text-ink-soft">Heel Vlaanderen</span>
+              <button type="button" disabled={Boolean(busy)} onClick={runFlanders} className="rounded-md bg-gold px-3 py-1.5 font-medium text-navy hover:bg-gold-deep disabled:opacity-40">
+                {busy === "vlaanderen" ? (progress ?? "bezig…") : "OpenStreetMap + Google Maps, alles"}
+              </button>
+              {busy === "vlaanderen" && (
+                <button type="button" onClick={() => (stopRef.current = true)} className="rounded-md border border-line bg-white px-3 py-1.5 hover:bg-paper-soft">
+                  Stop na deze ronde
+                </button>
+              )}
+              <span className="text-ink-faint">
+                nu {totals.n} kantoren in Vlaanderen ({totals.osm} via OpenStreetMap, {totals.maps} via Google Maps)
+              </span>
+            </div>
             <p className="mt-2 text-ink-faint leading-relaxed">
-              Google Maps zoekt elk kantoor per gemeente binnen de straal (max
-              40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest,
-              cache 14 dagen). FVF-gids leest profielen van
-              vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register
-              komt uit Instellingen → Sectoren. Twee bronnen = bevestigd.
+              Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
+              profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
             </p>
             {log.length > 0 && (
               <ul className="mt-2 space-y-0.5 text-ink-soft">

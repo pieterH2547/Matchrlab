@@ -12,7 +12,9 @@
 import { and, between, eq, inArray, like, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Office } from "@/lib/db/schema";
-import { placesSearchCached, placesSearchFull, webSearch } from "@/lib/search";
+import { cachedPlaceQueries, placesSearchFull, webSearch } from "@/lib/search";
+import { BE_ZIP_NAMES } from "@/lib/geo-be";
+import { fetchOverpass, FLANDERS_CHUNKS, osmToOffice, overpassQuery } from "./osm";
 import { fetchPage } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
 import { distanceKm, municipalitiesWithin, type GeoPoint } from "@/lib/geo";
@@ -54,6 +56,49 @@ export type OfficeInput = {
   category: string | null;
   source: string;
 };
+
+/**
+ * Zelfde vestiging onder een andere sleutel (Google-cid, OSM-id, naam + postcode)? Zelfde sector én
+ * (binnen 60 m met een naam- of merkovereenkomst, of dezelfde naam op dezelfde postcode).
+ */
+export function sameSpot(a: { sector: string; name: string; brand: string | null; postcode: string | null; lat: number | null; lng: number | null }, b: typeof a): boolean {
+  if (a.sector !== b.sector) return false;
+  const byName = sameOffice({ name: a.name, postcode: a.postcode }, { name: b.name, postcode: b.postcode });
+  if (a.lat !== null && a.lng !== null && b.lat !== null && b.lng !== null) {
+    const m = distanceKm({ lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }) * 1000;
+    if (m <= 60 && (byName || (a.brand && a.brand === b.brand))) return true;
+  }
+  return byName && Boolean(a.postcode) && a.postcode === b.postcode;
+}
+
+/**
+ * Nieuwe kantoren tegen de bestaande leggen: een vestiging die er al is (via een andere bron) krijgt de
+ * bron erbij in plaats van een tweede rij. Ook binnen de nieuwe lijst zelf wordt ontdubbeld.
+ */
+export async function mergeIntoKnown(items: OfficeInput[]): Promise<{ items: OfficeInput[]; merged: number }> {
+  const withGeo = items.filter((i) => i.lat !== null && i.lng !== null);
+  if (!withGeo.length) return { items, merged: 0 };
+  const lats = withGeo.map((i) => i.lat!);
+  const lngs = withGeo.map((i) => i.lng!);
+  const known = await db()
+    .select()
+    .from(schema.offices)
+    .where(and(between(schema.offices.lat, Math.min(...lats) - 0.002, Math.max(...lats) + 0.002), between(schema.offices.lng, Math.min(...lngs) - 0.003, Math.max(...lngs) + 0.003)));
+  const keys = new Set(items.map((i) => i.dedupeKey));
+  const out: OfficeInput[] = [];
+  let merged = 0;
+  for (const it of items) {
+    const hit = known.find((k) => k.dedupeKey !== it.dedupeKey && !keys.has(k.dedupeKey) && sameSpot(it, k)) ?? out.find((o) => o.dedupeKey !== it.dedupeKey && sameSpot(it, o));
+    if (!hit) {
+      out.push(it);
+      continue;
+    }
+    merged++;
+    // Overnemen onder de bestaande sleutel; coalesce in de upsert houdt wat er al stond en vult aan.
+    out.push({ ...it, dedupeKey: hit.dedupeKey, lat: null, lng: null, geoPrecision: "postcode" });
+  }
+  return { items: out, merged };
+}
 
 /** Kantoren opslaan: nieuw = invoegen; bestaand = bron toevoegen en lege velden aanvullen. */
 export async function upsertOffices(items: OfficeInput[]): Promise<{ inserted: number; updated: number }> {
@@ -110,33 +155,26 @@ export type BuildResult = {
   live: number;
   skippedForBudget: number;
   found: number;
+  merged: number;
   inserted: number;
   updated: number;
   outOfSector: number;
 };
 
-/**
- * Google Maps afgaan voor elke gemeente binnen de straal: soort kantoor × gemeente, dichtstbij eerst.
- * `budget` = max nieuwe (betalende) Maps-vragen in deze aanroep; wat al in de cache zit is gratis en telt niet.
- * Opnieuw aanroepen gaat verder waar het budget ophield.
- */
-export async function buildOffices(center: GeoPoint, radiusKm: number, sectors: OfficeSector[], budget = 40): Promise<BuildResult> {
-  const munis = municipalitiesWithin(center, radiusKm, 80);
-  const queries: string[] = [];
-  for (const m of munis) for (const s of sectors) for (const q of MAPS_QUERIES[s]) queries.push(`${q} ${m.name}`);
-  const plan: { q: string; cached: boolean }[] = [];
-  for (const q of queries) plan.push({ q, cached: await placesSearchCached(q) });
+/** Zoekopdrachten uitvoeren (cache gratis, max `budget` nieuwe), vestigingen classificeren en opslaan. */
+async function runMapsPlan(queries: string[], sectors: OfficeSector[], budget: number): Promise<Omit<BuildResult, "municipalities">> {
+  const cached = await cachedPlaceQueries();
   let live = 0;
   let skipped = 0;
-  const todo = plan.filter((p) => {
-    if (p.cached) return true;
-    if (live < budget) {
+  const todo: { q: string; cached: boolean }[] = [];
+  for (const q of queries) {
+    const isCached = cached.has(q.trim().toLowerCase());
+    if (isCached) todo.push({ q, cached: true });
+    else if (live < budget) {
       live++;
-      return true;
-    }
-    skipped++;
-    return false;
-  });
+      todo.push({ q, cached: false });
+    } else skipped++;
+  }
   const items: OfficeInput[] = [];
   let outOfSector = 0;
   let next = 0;
@@ -179,8 +217,58 @@ export async function buildOffices(center: GeoPoint, radiusKm: number, sectors: 
       }
     }),
   );
-  const r = await upsertOffices(items);
-  return { municipalities: munis.length, queries: queries.length, fromCache: todo.filter((t) => t.cached).length, live, skippedForBudget: skipped, found: items.length, inserted: r.inserted, updated: r.updated, outOfSector };
+  const m = await mergeIntoKnown(items);
+  const r = await upsertOffices(m.items);
+  return { queries: queries.length, fromCache: todo.filter((t) => t.cached).length, live, skippedForBudget: skipped, found: items.length, merged: m.merged, inserted: r.inserted, updated: r.updated, outOfSector };
+}
+
+/**
+ * Google Maps afgaan voor elke gemeente binnen de straal: soort kantoor × gemeente, dichtstbij eerst.
+ * `budget` = max nieuwe (betalende) Maps-vragen in deze aanroep; wat al in de cache zit is gratis en telt niet.
+ * Opnieuw aanroepen gaat verder waar het budget ophield.
+ */
+export async function buildOffices(center: GeoPoint, radiusKm: number, sectors: OfficeSector[], budget = 40): Promise<BuildResult> {
+  const munis = municipalitiesWithin(center, radiusKm, 80);
+  const queries: string[] = [];
+  for (const m of munis) for (const s of sectors) for (const q of MAPS_QUERIES[s]) queries.push(`${q} ${m.name}`);
+  return { municipalities: munis.length, ...(await runMapsPlan(queries, sectors, budget)) };
+}
+
+/** Alle Vlaamse gemeenten (één naam per postcode, dubbele namen weg), op postcode gesorteerd. */
+export function flemishMunicipalities(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const zip of Object.keys(BE_ZIP_NAMES).sort()) {
+    const name = BE_ZIP_NAMES[zip];
+    if (!isFlemishPostcode(zip) || !name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name.replace(/(^|[-\s])\p{L}/gu, (m) => m.toUpperCase()));
+  }
+  return out;
+}
+
+/** Heel Vlaanderen via Google Maps, in rondes van `budget` nieuwe vragen; `skippedForBudget` zegt hoeveel er nog wachten. */
+export async function buildOfficesFlanders(sectors: OfficeSector[], budget = 100): Promise<BuildResult> {
+  const munis = flemishMunicipalities();
+  const queries: string[] = [];
+  for (const m of munis) for (const s of sectors) for (const q of MAPS_QUERIES[s]) queries.push(`${q} ${m}`);
+  return { municipalities: munis.length, ...(await runMapsPlan(queries, sectors, budget)) };
+}
+
+export type OsmResult = { label: string; elements: number; offices: number; merged: number; inserted: number; updated: number; note?: string };
+
+/** OpenStreetMap rond een punt (straal) of voor één stuk van Vlaanderen (chunk 0..5). */
+export async function importOsm(area: { center: GeoPoint; radiusKm: number } | { chunk: number }): Promise<OsmResult> {
+  const label = "chunk" in area ? (FLANDERS_CHUNKS[area.chunk]?.label ?? "?") : "regio";
+  const query = "chunk" in area ? overpassQuery({ bbox: FLANDERS_CHUNKS[area.chunk].bbox }) : overpassQuery({ around: { center: area.center, radiusKm: area.radiusKm } });
+  const elements = await fetchOverpass(query);
+  if (!elements) return { label, elements: 0, offices: 0, merged: 0, inserted: 0, updated: 0, note: "OpenStreetMap (Overpass) antwoordde niet; probeer later opnieuw." };
+  const items = elements.map(osmToOffice).filter((x): x is OfficeInput => x !== null);
+  const m = await mergeIntoKnown(items);
+  const r = await upsertOffices(m.items);
+  return { label, elements: elements.length, offices: items.length, merged: m.merged, inserted: r.inserted, updated: r.updated };
 }
 
 /** Kantoren in het gebied (grove rechthoek), om nieuwe bronnen aan bestaande vestigingen te koppelen. */
@@ -382,10 +470,16 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
 }
 
 /** Totalen voor het beheer: kantoren per sector en per bron. */
-export async function officeStats(): Promise<{ sector: string; n: number; verified: number }[]> {
+export async function officeStats(): Promise<{ sector: string; n: number; verified: number; maps: number; osm: number }[]> {
   const rows = await db()
-    .select({ sector: schema.offices.sector, n: sql<number>`count(*)`, verified: sql<number>`count(*) filter (where jsonb_array_length(${schema.offices.sources}) >= 2 or ${schema.offices.sources} ? 'fsma')` })
+    .select({
+      sector: schema.offices.sector,
+      n: sql<number>`count(*)`,
+      verified: sql<number>`count(*) filter (where jsonb_array_length(${schema.offices.sources}) >= 2 or ${schema.offices.sources} ? 'fsma')`,
+      maps: sql<number>`count(*) filter (where ${schema.offices.sources} ? 'google_maps')`,
+      osm: sql<number>`count(*) filter (where ${schema.offices.sources} ? 'osm')`,
+    })
     .from(schema.offices)
     .groupBy(schema.offices.sector);
-  return rows.map((r) => ({ sector: r.sector, n: Number(r.n), verified: Number(r.verified) }));
+  return rows.map((r) => ({ sector: r.sector, n: Number(r.n), verified: Number(r.verified), maps: Number(r.maps), osm: Number(r.osm) }));
 }

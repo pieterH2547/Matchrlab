@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { geocode, findPlaceName } from "@/lib/geo";
-import { buildOffices, crossCheckRegistry, enrichFromFvf, importOfficesCsv, officesNear, officeStats } from "@/lib/offices/collect";
+import { buildOffices, buildOfficesFlanders, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
+import { FLANDERS_CHUNKS } from "@/lib/offices/osm";
 import type { OfficeSector } from "@/lib/offices/classify";
 
 export const maxDuration = 300;
@@ -71,11 +72,18 @@ export async function POST(req: Request) {
       if (!r.rows) return NextResponse.json({ error: `Geen bruikbare rijen. Gevonden kolommen: ${r.columns.join(", ") || "geen"}.` }, { status: 400 });
       return NextResponse.json({ ok: true, ...r });
     }
-    const body = (await req.json().catch(() => ({}))) as { action?: string; plaats?: string; straal?: number; sectors?: string; budget?: number };
+    const body = (await req.json().catch(() => ({}))) as { action?: string; plaats?: string; straal?: number; sectors?: string; budget?: number; chunk?: number };
+    const budget = Math.max(0, Math.min(Number(body.budget) || 40, 150));
+    // Heel Vlaanderen: geen plaats nodig.
+    if (body.action === "build_all") return NextResponse.json({ ok: true, ...(await buildOfficesFlanders(parseSectors(body.sectors), budget)) });
+    if (body.action === "osm_all") {
+      const chunk = Math.max(0, Math.min(Number(body.chunk) || 0, FLANDERS_CHUNKS.length - 1));
+      return NextResponse.json({ ok: true, chunk, chunks: FLANDERS_CHUNKS.length, ...(await importOsm({ chunk })) });
+    }
     const place = resolvePlace(body.plaats);
     if (!place) return NextResponse.json({ error: "Onbekende plaats." }, { status: 400 });
     const radius = parseRadius(body.straal);
-    const budget = Math.max(0, Math.min(Number(body.budget) || 40, 120));
+    if (body.action === "osm") return NextResponse.json({ ok: true, ...(await importOsm({ center: place.center, radiusKm: radius })) });
     if (body.action === "build") return NextResponse.json({ ok: true, ...(await buildOffices(place.center, radius, parseSectors(body.sectors), budget)) });
     if (body.action === "fvf") return NextResponse.json({ ok: true, ...(await enrichFromFvf(place.center, radius, Math.min(budget, 20))) });
     if (body.action === "fsma") return NextResponse.json({ ok: true, ...(await crossCheckRegistry(place.center, radius)) });
