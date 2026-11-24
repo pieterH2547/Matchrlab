@@ -165,6 +165,10 @@ describe("kantorenkaart: vacatures koppelen aan kantoren", () => {
     expect(m.get(1)?.[0].email).toBe("jobs@kbc.be");
     expect(m.get(2)).toBeUndefined();
     expect(m.get(3)?.map((j) => j.title)).toEqual(["Schadebeheerder"]);
+    // Franse plaatsnaam ("Gand") koppelt op ligging aan een kantoor in Gent.
+    const gent = [{ id: 5, name: "Belfius Gent Zuid", brand: "Belfius", postcode: "9000", municipality: "Gent", lat: 51.05, lng: 3.72 }];
+    const g = matchJobsToOffices(gent, [{ id: 20, title: "Adviseur", url: "https://x/9", source: "jooble" as const, location: "Gand", raw: { companyName: "Belfius" }, descriptionText: null }]);
+    expect(g.get(5)).toHaveLength(1);
   });
   it("bouwt een sectorprofiel dat de jobboard-functies aankunnen", async () => {
     const { sectorProfile, SECTOR_TITLES } = await import("@/lib/offices/jobsearch");
@@ -191,5 +195,11 @@ describe("kantorenkaart: geen bureaus, enkel sectorvacatures", () => {
     expect(ok("Alle vacatures in Mechelen op Jobsonline.be", null, "https://www.jobsonline.be/x")).toBe(false);
     expect(employerOf({ title: "Vacature Klantendienstmedewerker Crelan in Mechelen", companyName: null })).toBe("Crelan");
     expect(employerOf({ title: "Adviseur", companyName: "Mechelen" })).toBeNull();
+    expect(ok("Winkelmedewerker Brood & Banket Genk", "Bakkerij X")).toBe(false);
+    expect(ok("Toonbankbediende Brugge", "Slagerij X")).toBe(false);
+    expect(ok("Senior Private Banker", "Morgan Philips Group")).toBe(false);
+    expect(ok("Vacature Adviseur Levensverzekeringen Antwerpen; Select HR", null, "https://belgievacature.be/x")).toBe(false);
+    expect(ok("Zelfstandig Directeur Bankagentschap", "Beobank")).toBe(true);
+    expect(employerOf({ title: "Vacature Adviseur verzekeringen", companyName: "bedrijfswagen" })).toBeNull();
   });
 });

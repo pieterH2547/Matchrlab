@@ -562,16 +562,19 @@ export function MapExplorer() {
           {(data?.jobs?.length ?? 0) > 0 && jobsFilter !== "zonder" && (
             <details className="border-b border-line px-5 py-2.5" open={jobsFilter === "met"}>
               <summary className="cursor-pointer select-none text-[12px] font-semibold uppercase tracking-wide text-ok">
-                {data!.jobs!.length} vacatures van eindwerkgevers {data?.center ? "in de straal" : "in Vlaanderen"} <span className="font-normal normal-case text-ink-faint">· geen bureaus</span>
+                {data!.jobs!.filter((j) => j.company).length} vacatures van eindwerkgevers {data?.center ? "in de straal" : "in Vlaanderen"}{" "}
+                <span className="font-normal normal-case text-ink-faint">
+                  · geen bureaus · +{data!.jobs!.filter((j) => !j.company).length} zonder vermelde werkgever
+                </span>
               </summary>
               <ul className="mt-2 space-y-1.5">
-                {data!.jobs!.slice(0, 80).map((j) => (
+                {data!.jobs!.slice(0, 150).map((j) => (
                   <li key={j.url} className="text-[12.5px] leading-snug">
                     <a href={j.url} target="_blank" rel="noreferrer" className="font-medium text-navy hover:underline">
                       {j.title}
                     </a>
                     <span className="block text-ink-soft">
-                      {j.company ?? "werkgever niet vermeld"}
+                      {j.company ?? "werkgever niet vermeld (kan een bureau zijn)"}
                       {j.location ? ` · ${j.location}` : ""} · {j.source}
                       {j.matched ? " · gekoppeld aan kantoor" : ""}
                       {j.email ? ` · ${j.email}` : ""}

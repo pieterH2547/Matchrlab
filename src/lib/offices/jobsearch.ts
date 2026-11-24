@@ -49,10 +49,10 @@ export function sectorProfile(sector: OfficeSector, titles: string[], region: st
 }
 
 /** Bureaus die de algemene lijst mist of te kort zijn voor de merkherkenning (live gezien in de zoekresultaten). */
-const AGENCY_NAMES = /\b(select hr|hays|skillflex|start people|unique( belgium)?|actief interim|bright plus|ctrl-?f|adecco|manpower|randstad|tempo-?team|accent|robert (half|walters)|michael page|page personnel|sbs skill ?builders|vivaldis|synergie|agilitas|konvert|forum jobs|asap|house of talents?|mise en place|talentus|profile group|experis|usg|hudson|mercuri urval|fmc|walters people|sander|jobmatch|kelly services|impact|daoust|trixxo|select projects|motion|linkedin|indeed|stepstone|jobat|vdab)\b/i;
+const AGENCY_NAMES = /\b(select hr|hays|skillflex|start people|unique( belgium)?|actief interim|bright plus|ctrl-?f|adecco|manpower|randstad|tempo-?team|accent|robert (half|walters)|michael page|page personnel|sbs skill ?builders|vivaldis|synergie|agilitas|konvert|forum jobs|asap|house of talents?|mise en place|talentus|profile group|experis|usg|hudson|mercuri urval|fmc|walters people|sander|jobmatch|kelly services|impact|daoust|trixxo|select projects|select jobs|motion|linkedin|indeed|stepstone|jobat|vdab|austin bright|job talent|morgan philips|xolutions|junto|bright potentials|talent connect|dradvice|mercor|covergo|newjobs|nieuwejobs|studentjob|belgievacature|jobbsquare)\b/i;
 
 /** Titel hoort bij de sector (bank, krediet, verzekering, schade, beleggen)? Houdt ruis als "podoloog" buiten. */
-const SECTOR_TITLE = /(bank|krediet|credit|verzeker|assur|insurance|schade|claims?\b|polis|beleg|vermogen|private bank|relatiebeheer|financieel adviseur|financial advis|underwrit|hypothe|makelaar|leven\b|sparen)/i;
+const SECTOR_TITLE = /(\bbank(?!et)|\bbanque|krediet|credit|verzeker|assur|insurance|schade|claims?\b|polis|beleg|vermogen|private bank|relatiebeheer|financieel adviseur|financial advis|underwrit|hypothe|makelaar|leven\b|sparen)/i;
 
 /** Verzamelpagina in plaats van één vacature ("Alle vacatures in Mechelen", "… Jobs en vacatures"). */
 const LISTING_TITLE = /^(alle|nieuwe|\d+)\s+(vacatures|jobs)|jobs en vacatures|vacatures in\b.*\bop\b/i;
@@ -65,6 +65,8 @@ export function isDirectSectorJob(j: { title: string; url: string; companyName?:
   if (LISTING_TITLE.test(j.title) || !SECTOR_TITLE.test(j.title)) return false;
   const company = (j.companyName ?? "").trim();
   if (company && (AGENCY_NAMES.test(company) || isIntermediaryCompany(company, j.url))) return false;
+  // Bureau in de titel zelf ("Vacature … Antwerpen; Select HR") of een stage/studentenjob.
+  if (AGENCY_NAMES.test(j.title) || /\b(stagiair|stagiaire|intern|studentenjob|jobstudent)\b/i.test(j.title)) return false;
   if (isAgencyDomain(j.url) || AGENCY_NAMES.test(new URL(j.url, "https://x").hostname.replace(/^www\./, "").split(".")[0])) return false;
   const text = `${j.title} ${j.descriptionText ?? ""}`;
   if (/(voor (een|onze) (klant|opdrachtgever)|pour (notre|un) client|for our client|interim|uitzend|freelance|tijdelijk|zelfstandige basis)/i.test(text.slice(0, 1500))) return false;
@@ -74,7 +76,8 @@ export function isDirectSectorJob(j: { title: string; url: string; companyName?:
 /** Werkgever: de opgegeven naam, anders een bank- of verzekeringsmerk in de titel ("Klantendienstmedewerker Crelan in Mechelen"). */
 export function employerOf(j: { title: string; companyName?: string | null }): string | null {
   const c = (j.companyName ?? "").trim();
-  if (c && !findPlaceName(c)) return c;
+  // Zoekresultaten geven soms een plaats of een los woord uit de titel als "werkgever".
+  if (c && !findPlaceName(c) && !/^(bedrijfswagen|levensverzekeringen|verzekeringen|vacature|jobs?|bank|vast contract)$/i.test(c)) return c;
   return detectBrand(j.title, "bank") ?? detectBrand(j.title, "verzekeringen");
 }
 
@@ -181,7 +184,7 @@ export function jobsInRegion(jobs: Job[], center: GeoPoint | null, radiusKm: num
     const raw = (j.raw ?? {}) as { companyName?: string; sweep?: string };
     out.push({ title: j.title, url: j.url, source: j.source, company: raw.companyName?.trim() || null, location: j.location, email: (j.descriptionText ?? "").match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null, sector: raw.sweep ?? "", matched: matchedUrls.has(j.url) });
   }
-  return out.sort((a, b) => (a.company ?? "~").localeCompare(b.company ?? "~") || a.title.localeCompare(b.title));
+  return out.sort((a, b) => Number(!a.company) - Number(!b.company) || (a.company ?? "").localeCompare(b.company ?? "") || a.title.localeCompare(b.title));
 }
 
 const GENERIC = new Set(["bank", "verzekeringen", "verzekering", "insurance", "assurances", "kantoor", "group", "groep", "belgium", "belgie", "nv", "sa", "bv"]);
@@ -191,7 +194,7 @@ const GENERIC = new Set(["bank", "verzekeringen", "verzekering", "insurance", "a
  * (uit de locatietekst). Een merkvacature in Mechelen hoort bij de KBC-kantoren in Mechelen, niet bij die in Gent.
  * Een vacature zonder herkenbare plaats blijft los.
  */
-export function matchJobsToOffices<T extends { id: number; name: string; brand: string | null; postcode: string | null; municipality: string | null }>(
+export function matchJobsToOffices<T extends { id: number; name: string; brand: string | null; postcode: string | null; municipality: string | null; lat?: number | null; lng?: number | null }>(
   offices: T[],
   jobs: Pick<Job, "id" | "title" | "url" | "source" | "location" | "raw" | "descriptionText">[],
 ): Map<number, OfficeJob[]> {
@@ -210,12 +213,15 @@ export function matchJobsToOffices<T extends { id: number; name: string; brand: 
     const pc = extractPostcode(j.location);
     const place = findPlaceName(j.location);
     const muni = place ? norm(place) : null;
-    if (!pc && !muni) continue;
+    // Ligging van de vacature: "Gand", "Anvers" of "2800" worden coördinaten, zodat Franse plaatsnamen ook kloppen.
+    const point = geocode(j.location);
+    if (!pc && !muni && !point) continue;
     // Plaatsnamen tellen niet als naamovereenkomst: zoekresultaten geven soms de gemeente als "werkgever".
     const placeTokens = new Set([...nameTokens(place ?? ""), ...nameTokens(findPlaceName(company) ?? "")]);
     const cTokens = nameTokens(company).filter((t) => !GENERIC.has(t) && !placeTokens.has(t));
     for (const k of officeKeys) {
-      const samePlace = (pc && k.o.postcode === pc) || (muni && k.muni && (k.muni === muni || k.muni.startsWith(muni) || muni.startsWith(k.muni)));
+      const near = point && typeof k.o.lat === "number" && typeof k.o.lng === "number" ? distanceKm(point, { lat: k.o.lat, lon: k.o.lng }) <= 4 : false;
+      const samePlace = (pc && k.o.postcode === pc) || near || (muni && k.muni && (k.muni === muni || k.muni.startsWith(muni) || muni.startsWith(k.muni)));
       if (!samePlace) continue;
       const byBrand = Boolean(k.brand) && (c === k.brand || new RegExp(`(^|[^a-z0-9])${k.brand!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(c));
       const own = new Set(nameTokens(k.o.municipality ?? ""));
