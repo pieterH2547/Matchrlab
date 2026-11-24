@@ -49,7 +49,7 @@ Bronnen, die elkaar aanvullen in de tabel `offices` (één rij per vestiging, on
 | FVF-gids (vindeenverzekeringsmakelaar.be) | profielpagina's via de zoekketen (`site:` per gemeente) en `page_cache`; of een CSV-export | naam, adres, FSMA-/ondernemingsnummer → bevestiging of nieuw kantoor |
 | FSMA-register | de lijst die onder Instellingen → Sectoren geïmporteerd is | naam, adres, ondernemingsnummer → bevestiging of nieuw kantoor |
 
-Beheerders (teamwachtwoord) bouwen de kaart per regio op met de knoppen onderaan het paneel; iedereen die aangemeld is mag kijken.
+Iedereen die aangemeld is (enkel een naam) bouwt de kaart per regio op met de knoppen onderaan het paneel; geen teamwachtwoord nodig.
 De kaarttegels komen van OpenStreetMap (geen key). Code: `src/lib/offices/` (classify = zuivere logica, collect = verzamelen en opvragen), `src/app/api/kaart`, `src/components/kaart/`.
 
 ## AI-model: OpenAI (standaard), Claude optioneel

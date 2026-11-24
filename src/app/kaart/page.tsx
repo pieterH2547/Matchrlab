@@ -8,7 +8,7 @@ export const metadata = { title: "Kantorenkaart · Matchr" };
 async function KaartWithSession() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  return <MapExplorer me={session.name} admin={Boolean(session.admin)} />;
+  return <MapExplorer />;
 }
 
 export default function KaartPage() {

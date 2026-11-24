@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireRealAdmin } from "@/lib/adminAuth";
 import { requireSession } from "@/lib/session";
 import { geocode, findPlaceName } from "@/lib/geo";
 import { buildOffices, crossCheckRegistry, enrichFromFvf, importOfficesCsv, officesNear, officeStats } from "@/lib/offices/collect";
@@ -50,7 +49,7 @@ export async function GET(req: Request) {
 }
 
 /**
- * Kaart bijwerken (enkel beheerders):
+ * Kaart bijwerken (iedereen die aangemeld is; geen teamwachtwoord nodig):
  * - build: Google Maps afgaan per gemeente binnen de straal (budget = max nieuwe zoekopdrachten)
  * - fvf:   vindeenverzekeringsmakelaar.be via de zoekketen
  * - fsma:  FSMA-register (al geïmporteerd) tegen de kaart leggen
@@ -58,7 +57,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    await requireRealAdmin();
+    await requireSession();
     const type = req.headers.get("content-type") ?? "";
     if (type.includes("multipart/form-data")) {
       const form = await req.formData();
