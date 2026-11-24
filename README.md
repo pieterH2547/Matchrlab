@@ -45,11 +45,15 @@ Bronnen, die elkaar aanvullen in de tabel `offices` (één rij per vestiging, on
 
 | Bron | Hoe | Wat |
 | --- | --- | --- |
-| Google Maps (Serper) | "bankkantoor / bank / verzekeringsmakelaar / verzekeringskantoor / verzekeringen" × elke gemeente binnen de straal, dichtstbij eerst; max 40 nieuwe zoekopdrachten per ronde, cache 14 dagen (opnieuw klikken gaat verder) | naam, adres, exacte coördinaten, telefoon, website, beoordeling |
+| Google Maps (Serper) | "bankkantoor / bank / verzekeringsmakelaar / verzekeringskantoor / verzekeringen" × elke gemeente binnen de straal, dichtstbij eerst; max 40 nieuwe zoekopdrachten per ronde, cache 14 dagen (opnieuw klikken gaat verder). Heel Vlaanderen: alle 572 gemeenten in rondes van 100 (±2.900 zoekopdrachten) | naam, adres, exacte coördinaten, telefoon, website, beoordeling |
+| OpenStreetMap (Overpass) | amenity=bank, office=insurance, office=financial_advisor; rond een woonplaats of heel Vlaanderen in ±56 kleine tegels met tijdsbudget (grote vragen vallen weg); gratis, geen key, ODbL-bronvermelding | naam, merk, adres, exacte coördinaten, telefoon, mail, website |
+| Merksites (argenta.be, crelan.be) | kantoorpagina's uit de sitemap (robots.txt laat ze toe), 40 per ronde via `page_cache`; parser leest microdata, og:description en Drupal-adresvelden; registry in `src/lib/offices/brands.ts` | naam, adres, telefoon, mail, bij Crelan ook coördinaten |
 | FVF-gids (vindeenverzekeringsmakelaar.be) | profielpagina's via de zoekketen (`site:` per gemeente) en `page_cache`; of een CSV-export | naam, adres, FSMA-/ondernemingsnummer → bevestiging of nieuw kantoor |
 | FSMA-register | de lijst die onder Instellingen → Sectoren geïmporteerd is | naam, adres, ondernemingsnummer → bevestiging of nieuw kantoor |
 
-Iedereen die aangemeld is (enkel een naam) bouwt de kaart per regio op met de knoppen onderaan het paneel; geen teamwachtwoord nodig.
+Dezelfde vestiging uit twee bronnen wordt samengevoegd (zelfde sector en binnen 60 m met naam- of merkovereenkomst, of dezelfde naam op dezelfde postcode) en telt als bevestigd. "Vacatures zoeken bij deze kantoren" zet de websites van de kantoren in de straal in de bestaande sectorwachtrij (`companies` + `crawlQueue`), 16 per ronde; daarna houdt de dagelijkse cron ze vers. Een merksite die 3+ kantoren delen toont "vacatures bij het merk". De lijst staat in twee groepen (met open vacatures, zonder vacature) met telefoon, mail en website per kantoor, en de Excel-knop exporteert de getoonde lijst.
+
+Iedereen die aangemeld is (enkel een naam) bouwt de kaart per regio of voor heel Vlaanderen op met de knoppen onderaan het paneel; geen teamwachtwoord nodig.
 De kaarttegels komen van OpenStreetMap (geen key). Code: `src/lib/offices/` (classify = zuivere logica, collect = verzamelen en opvragen), `src/app/api/kaart`, `src/components/kaart/`.
 
 ## AI-model: OpenAI (standaard), Claude optioneel
