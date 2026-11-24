@@ -14,7 +14,7 @@ import { db, schema } from "@/lib/db";
 import type { Office } from "@/lib/db/schema";
 import { cachedPlaceQueries, placesSearchFull, webSearch } from "@/lib/search";
 import { BE_ZIP_NAMES } from "@/lib/geo-be";
-import { fetchOverpass, FLANDERS_CHUNKS, osmToOffice, overpassQuery } from "./osm";
+import { fetchOverpassDetailed, FLANDERS_CHUNKS, osmToOffice, overpassQuery } from "./osm";
 import { fetchPage } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
 import { distanceKm, municipalitiesWithin, type GeoPoint } from "@/lib/geo";
@@ -265,8 +265,8 @@ export type OsmResult = { label: string; elements: number; offices: number; merg
 export async function importOsm(area: { center: GeoPoint; radiusKm: number } | { chunk: number }): Promise<OsmResult> {
   const label = "chunk" in area ? (FLANDERS_CHUNKS[area.chunk]?.label ?? "?") : "regio";
   const query = "chunk" in area ? overpassQuery({ bbox: FLANDERS_CHUNKS[area.chunk].bbox }) : overpassQuery({ around: { center: area.center, radiusKm: area.radiusKm } });
-  const elements = await fetchOverpass(query);
-  if (!elements) return { label, elements: 0, offices: 0, merged: 0, inserted: 0, updated: 0, note: "OpenStreetMap (Overpass) antwoordde niet; probeer later opnieuw." };
+  const { elements, attempts } = await fetchOverpassDetailed(query);
+  if (!elements) return { label, elements: 0, offices: 0, merged: 0, inserted: 0, updated: 0, note: `OpenStreetMap (Overpass) antwoordde niet: ${attempts.join(" · ")}` };
   const items = elements.map(osmToOffice).filter((x): x is OfficeInput => x !== null);
   const m = await mergeIntoKnown(items);
   const r = await upsertOffices(m.items);

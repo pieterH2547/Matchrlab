@@ -34,27 +34,44 @@ export function overpassQuery(area: { around: { center: GeoPoint; radiusKm: numb
  * Overpass bevragen; de eerste spiegel die antwoordt wint. Geeft null als geen enkele antwoordt.
  * Eigen fetch, niet fetchRaw: een provincie is meer dan de 1,5 MB die de paginahelper afkapt.
  */
-export async function fetchOverpass(query: string, timeoutMs = 150_000): Promise<OsmElement[] | null> {
+export async function fetchOverpass(query: string, timeoutMs = 70_000): Promise<OsmElement[] | null> {
+  const r = await fetchOverpassDetailed(query, timeoutMs);
+  return r.elements;
+}
+
+/** Zelfde, maar met per spiegel wat er gebeurde (status, fout, duur), voor de diagnose in het paneel. */
+export async function fetchOverpassDetailed(query: string, timeoutMs = 70_000): Promise<{ elements: OsmElement[] | null; attempts: string[] }> {
+  const attempts: string[] = [];
   for (const url of MIRRORS) {
+    const host = new URL(url).hostname;
+    const t0 = Date.now();
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "Matchr kantorenkaart (RecruitrLAB, intern)" },
-        body: `data=${encodeURIComponent(query)}`,
+      const res = await fetch(`${url}?data=${encodeURIComponent(query)}`, {
+        method: "GET",
+        headers: { accept: "application/json", "user-agent": "Matchr kantorenkaart (RecruitrLAB, intern; contact via recruitrlab.be)" },
         signal: ctrl.signal,
+        cache: "no-store",
       });
-      if (!res.ok) continue;
-      const data = (await res.json()) as { elements?: OsmElement[] };
-      if (Array.isArray(data.elements)) return data.elements;
-    } catch {
-      /* volgende spiegel */
+      const text = await res.text();
+      if (!res.ok) {
+        attempts.push(`${host}: HTTP ${res.status} na ${Math.round((Date.now() - t0) / 1000)} s (${text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120)})`);
+        continue;
+      }
+      const data = JSON.parse(text) as { elements?: OsmElement[]; remark?: string };
+      if (Array.isArray(data.elements)) {
+        attempts.push(`${host}: ${data.elements.length} objecten na ${Math.round((Date.now() - t0) / 1000)} s${data.remark ? ` (${data.remark.slice(0, 120)})` : ""}`);
+        return { elements: data.elements, attempts };
+      }
+      attempts.push(`${host}: geen elements in het antwoord`);
+    } catch (e) {
+      attempts.push(`${host}: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)} na ${Math.round((Date.now() - t0) / 1000)} s`);
     } finally {
       clearTimeout(timer);
     }
   }
-  return null;
+  return { elements: null, attempts };
 }
 
 /** Dichtstbijzijnde postcode (middelpunt) voor een punt, als het adres geen postcode heeft. */
