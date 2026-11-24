@@ -203,3 +203,19 @@ describe("kantorenkaart: geen bureaus, enkel sectorvacatures", () => {
     expect(employerOf({ title: "Vacature Adviseur verzekeringen", companyName: "bedrijfswagen" })).toBeNull();
   });
 });
+
+describe("kantorenkaart: grens van Vlaanderen", () => {
+  it("kent binnen en buiten, met Brussel als gat", async () => {
+    const { inFlanders } = await import("@/lib/offices/flanders");
+    expect(inFlanders(51.0259, 4.4776)).toBe(true); // Mechelen
+    expect(inFlanders(51.2093, 3.2247)).toBe(true); // Brugge
+    expect(inFlanders(50.9307, 5.3378)).toBe(true); // Hasselt
+    expect(inFlanders(50.8466, 4.3517)).toBe(false); // Brussel
+    expect(inFlanders(50.6326, 5.5797)).toBe(false); // Luik
+    expect(inFlanders(50.7175, 4.6114)).toBe(false); // Waver
+    expect(inFlanders(51.44, 3.57)).toBe(false); // Vlissingen (NL)
+    expect(isFlemishPostcode("1000")).toBe(false);
+    expect(isFlemishPostcode("1300")).toBe(false);
+    expect(isFlemishPostcode("1500")).toBe(true);
+  });
+});

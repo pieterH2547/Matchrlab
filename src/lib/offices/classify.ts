@@ -108,10 +108,10 @@ export function postcodeName(postcode: string | null | undefined): string | null
   return postcode ? (BE_ZIP_NAMES[postcode] ?? null) : null;
 }
 
-/** Vlaamse postcodes (en Brussel): 1000–3999 en 8000–9999. De kaart richt zich op Vlaanderen. */
+/** Vlaamse postcodes: 1500–3999 en 8000–9999. Brussel (1000–1299) en Waals-Brabant (1300–1499) horen er niet bij. */
 export function isFlemishPostcode(postcode: string | null | undefined): boolean {
   const n = Number(postcode);
-  return Number.isFinite(n) && ((n >= 1000 && n <= 3999) || (n >= 8000 && n <= 9999));
+  return Number.isFinite(n) && ((n >= 1500 && n <= 3999) || (n >= 8000 && n <= 9999));
 }
 
 const STOP = new Set(["nv", "bv", "bvba", "sa", "srl", "sprl", "cvba", "vof", "comm", "verzekeringen", "verzekering", "assurances", "assurance", "insurance", "kantoor", "makelaar", "makelaars", "groep", "group", "en", "de", "het", "van", "der", "bank", "agentschap", "agent", "zelfstandig", "zelfstandige", "financieel", "advies", "office", "the", "and"]);

@@ -19,6 +19,7 @@ import { BE_ZIP_NAMES } from "@/lib/geo-be";
 import { fetchOverpassDetailed, FLANDERS_CHUNKS, FLANDERS_TILES, osmToOffice, overpassQuery } from "./osm";
 import { BRAND_SITES, readBrandPages } from "./brands";
 import { matchJobsToOffices, recentSweepJobs, type OfficeJob } from "./jobsearch";
+import { inFlanders } from "./flanders";
 import { fetchPage } from "@/lib/fetch";
 import { registrableDomain } from "@/lib/blocklist";
 import { distanceKm, municipalitiesWithin, type GeoPoint } from "@/lib/geo";
@@ -496,6 +497,8 @@ export async function officesNear(center: GeoPoint, radiusKm: number, sectors: O
   for (const o of rows) {
     const d = distanceKm(center, { lat: o.lat!, lon: o.lng! });
     if (d > radiusKm) continue;
+    // Enkel het Vlaams Gewest: de echte grens voor exacte liggingen, de postcode voor liggingen bij benadering.
+    if (o.geoPrecision === "exact" ? !inFlanders(o.lat!, o.lng!) : !isFlemishPostcode(o.postcode)) continue;
     const c = o.domain ? byDomain.get(o.domain) : undefined;
     out.push({
       id: o.id,
@@ -604,7 +607,6 @@ export async function importOsmTiles(from: number, budgetMs = 200_000): Promise<
 export async function allFlemishOffices(sectors: OfficeSector[]): Promise<OfficeView[]> {
   const all = await officesNear(FLANDERS_CENTER, FLANDERS_RADIUS_KM, sectors);
   return all
-    .filter((o) => (o.postcode ? isFlemishPostcode(o.postcode) : o.lat > 50.68 && o.lat < 51.52 && o.lng > 2.54 && o.lng < 5.95))
     .map((o) => ({ ...o, distanceKm: 0 }))
     .sort((a, b) => Number(b.openJobs > 0) - Number(a.openJobs > 0) || (a.municipality ?? "").localeCompare(b.municipality ?? "") || a.name.localeCompare(b.name));
 }

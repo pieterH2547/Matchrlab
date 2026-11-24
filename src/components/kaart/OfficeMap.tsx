@@ -3,7 +3,8 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useMemo, useRef, type RefObject } from "react";
-import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { Circle, MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from "react-leaflet";
+import { FLANDERS_RINGS } from "@/lib/offices/flanders";
 import type { OfficeView } from "@/lib/offices/collect";
 import { SOURCE_LABEL, KIND_LABEL } from "./labels";
 
@@ -41,7 +42,20 @@ const homeIcon = L.divIcon({
 });
 
 /** Vliegt naar het nieuwe middelpunt en past de zoom aan de straal aan. */
-/** Vlaanderen (met Brussel): de kaart blijft hierbinnen. [zuid-west], [noord-oost] */
+/** Grens van het Vlaams Gewest als Leaflet-ringen ([breedte, lengte]). */
+const FLANDERS_LATLNG = FLANDERS_RINGS.map((r) => r.map(([lng, lat]) => [lat, lng] as [number, number]));
+/** Alles buiten Vlaanderen: een grote rechthoek met Vlaanderen als gat (Brussel wordt door de even-oneven-vulling weer gedempt). */
+const OUTSIDE: [number, number][][] = [
+  [
+    [47, -2],
+    [47, 11],
+    [55, 11],
+    [55, -2],
+  ],
+  ...FLANDERS_LATLNG,
+];
+
+/** Vlaanderen: de kaart blijft hierbinnen. [zuid-west], [noord-oost] */
 const FLANDERS_BOUNDS = L.latLngBounds([50.66, 2.5], [51.54, 6.0]);
 
 function FitToRadius({ center, radiusKm }: { center: { lat: number; lon: number } | null; radiusKm: number }) {
@@ -80,6 +94,9 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
     <MapContainer center={initial} zoom={center ? 11 : 8} minZoom={8} maxBounds={FLANDERS_BOUNDS} maxBoundsViscosity={0.9} zoomControl={false} className="h-full w-full" attributionControl preferCanvas>
       {/* OpenStreetMap-tegels (geen key nodig), gedempt via CSS zodat de kantoren eruit springen. */}
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" className="basemap" maxZoom={19} />
+      {/* Buiten Vlaanderen gedempt, de gewestgrens in navy: zo is meteen duidelijk wat meetelt. */}
+      <Polygon positions={OUTSIDE} pathOptions={{ stroke: false, fillColor: "#f5f4f0", fillOpacity: 0.78, fillRule: "evenodd", interactive: false }} />
+      <Polygon positions={FLANDERS_LATLNG} pathOptions={{ color: "#1b1845", weight: 2, opacity: 0.85, fill: false, interactive: false }} />
       <FitToRadius center={center} radiusKm={radiusKm} />
       <FocusSelected offices={offices} selectedId={selectedId} markers={markers} />
       {center && (

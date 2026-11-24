@@ -320,14 +320,14 @@ export function MapExplorer() {
         while (i !== null && !stopRef.current) {
           const idx: number = i;
           setProgress(`Vacatures zoeken, gebied ${idx + 1}/5…`);
-          const j = await post({ action: "jobs_sweep_all", offset: idx, sectors: sectors.join(",") });
+          const j = await post({ action: "jobs_sweep_all", offset: idx, sectors: sectors.join(","), googleJobs: true });
           setLog((l) => [line(j), ...l]);
           i = typeof j.next === "number" ? j.next : null;
         }
       } else {
         if (!plaats) return;
         setProgress("Vacatures zoeken…");
-        const j = await post({ action: "jobs_sweep", plaats, straal: radius, sectors: sectors.join(",") });
+        const j = await post({ action: "jobs_sweep", plaats, straal: radius, sectors: sectors.join(","), googleJobs: true });
         setLog((l) => [line(j), ...l]);
       }
       await load(plaats, radius);
@@ -708,7 +708,7 @@ export function MapExplorer() {
               </span>
             </div>
             <p className="mt-2 text-ink-faint leading-relaxed">
-              Vacatures zoeken (jobboards): Adzuna, Jooble en de zoekketen (Google, LinkedIn, Indeed, VDAB) worden afgezocht op bank- en verzekeringsfuncties in de regio of per provincie; elke vacature wordt op werkgever + gemeente aan een kantoor gekoppeld, met mailadres als dat in de vacature staat. Kantoorsites crawlen: de websites van de kantoren in de straal gaan in de vacature-crawler (jobpagina, ATS, extractie), 16 per ronde, daarna dagelijks vers. Bij een merksite (KBC, Belfius, …) gelden de vacatures voor het merk, niet per se voor dit kantoor. Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
+              Vacatures zoeken (jobboards): Adzuna (brede OF-zoekopdracht met paginering en rechtstreeks per werkgever), Jooble, Google Jobs en de zoekketen (Google, LinkedIn, Indeed, VDAB) worden afgezocht op bank- en verzekeringsfuncties én op de grote merken, in de regio of per provincie; bureaus worden geweerd; elke vacature wordt op werkgever + gemeente aan een kantoor gekoppeld, met mailadres als dat in de vacature staat. Kantoorsites crawlen: de websites van de kantoren in de straal gaan in de vacature-crawler (jobpagina, ATS, extractie), 16 per ronde, daarna dagelijks vers. Bij een merksite (KBC, Belfius, …) gelden de vacatures voor het merk, niet per se voor dit kantoor. Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
               profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan de kantoorpagina&apos;s van argenta.be en crelan.be, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
             </p>
             {log.length > 0 && (

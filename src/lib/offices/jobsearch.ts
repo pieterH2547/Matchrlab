@@ -7,12 +7,54 @@
 import { and, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { Job } from "@/lib/db/schema";
-import { searchAdzuna, searchGoogleJobs, searchJooble, searchTargetedWeb } from "@/lib/pipeline/jobboards";
+import { searchGoogleJobs, searchJooble, searchTargetedWeb } from "@/lib/pipeline/jobboards";
 import { upsertJobs } from "@/lib/pipeline/jobstore";
 import type { NormalizedJob, Profile } from "@/lib/pipeline/types";
 import { distanceKm, extractPostcode, findPlaceName, geocode, municipalitiesWithin, strictlyWithinRadius, type GeoPoint } from "@/lib/geo";
 import { detectBrand, nameTokens, type OfficeSector } from "./classify";
 import { isAgencyDomain, isIntermediaryCompany, looksLikeIntermediary } from "@/lib/blocklist";
+import { fetchJson } from "@/lib/fetch";
+import { getSetting } from "@/lib/settings";
+import { countCall } from "@/lib/usage";
+
+/** Werkgevers waarop we rechtstreeks zoeken: vacatures staan er vaak onder een titel die we niet kennen. */
+export const SECTOR_EMPLOYERS: Record<OfficeSector, string[]> = {
+  bank: ["KBC", "Belfius", "BNP Paribas Fortis", "ING", "Argenta", "Crelan", "Beobank", "vdk bank", "Bank Van Breda"],
+  verzekeringen: ["AXA", "AG Insurance", "Ethias", "Baloise", "Allianz", "P&V", "DVV", "Vanbreda", "Federale Verzekering"],
+};
+
+type AdzunaHit = { id: string; title: string; description?: string; redirect_url: string; created?: string; company?: { display_name?: string }; location?: { display_name?: string } };
+
+/**
+ * Adzuna maximaal benutten binnen de gratis limiet (±25 aanroepen per minuut): alle sectortitels in één
+ * OF-zoekopdracht (`what_or`) met 50 per pagina en tot `pages` pagina's, plus één aanroep per werkgever
+ * (`company`). Zo dekken ±15 aanroepen wat vroeger 18 losse titels van 30 resultaten deden, en meer.
+ */
+export async function adzunaSectorSearch(sector: OfficeSector, region: string, radiusKm: number, pages = 3): Promise<{ jobs: NormalizedJob[]; queries: number; raw: number; error?: string; skipped?: string }> {
+  const appId = await getSetting("ADZUNA_APP_ID");
+  const appKey = await getSetting("ADZUNA_APP_KEY");
+  if (!appId || !appKey) return { jobs: [], queries: 0, raw: 0, skipped: "niet ingesteld" };
+  const out: NormalizedJob[] = [];
+  let queries = 0;
+  let failed = 0;
+  const call = async (extra: Record<string, string>, page: number): Promise<number> => {
+    const params = new URLSearchParams({ app_id: appId, app_key: appKey, where: region, distance: String(Math.min(radiusKm, 100)), results_per_page: "50", max_days_old: "60", sort_by: "date", "content-type": "application/json", ...extra });
+    queries++;
+    countCall("adzuna");
+    const data = await fetchJson<{ results?: AdzunaHit[] }>(`https://api.adzuna.com/v1/api/jobs/be/search/${page}?${params}`);
+    if (!data) failed++;
+    for (const r of data?.results ?? [])
+      out.push({ source: "adzuna", externalId: r.id, url: r.redirect_url, title: r.title, location: r.location?.display_name ?? "", descriptionText: r.description ?? "", companyName: r.company?.display_name ?? "", raw: { id: r.id, created: r.created, company: r.company?.display_name } });
+    // Rustig aan: de gratis sleutel laat ±25 aanroepen per minuut toe.
+    await new Promise((r) => setTimeout(r, 1300));
+    return data?.results?.length ?? 0;
+  };
+  // Losse woorden werken het best in what_or: elk woord uit de titels, zonder vulwoorden.
+  const words = Array.from(new Set(SECTOR_TITLES[sector].flatMap((t) => t.toLowerCase().split(/\s+/)).filter((w) => w.length > 4 && !["medewerker", "commercieel", "adviseur", "zelfstandig"].includes(w))));
+  for (let page = 1; page <= pages; page++) if ((await call({ what_or: words.join(" ") }, page)) < 50) break;
+  for (const company of SECTOR_EMPLOYERS[sector]) await call({ company }, 1);
+  return { jobs: out, queries, raw: out.length, error: failed === queries && queries ? "geen antwoord (key of limiet?)" : undefined };
+}
 
 /** Functietitels waarop werkgevers in de sector aanwerven; in groepjes van drie (zoveel titels bevraagt elke bron per keer). */
 export const SECTOR_TITLES: Record<OfficeSector, string[]> = {
@@ -112,20 +154,44 @@ export async function sweepJobs(center: GeoPoint, region: string, radiusKm: numb
     for (let i = 0; i < titles.length; i += 3) {
       const profile = sectorProfile(sector, titles.slice(i, i + 3), region, radiusKm, center);
       const tasks: Promise<void>[] = [
-        searchAdzuna(profile).then((r) => {
-          add("adzuna", r);
-          all.push(...tag(r.jobs, sector));
-        }),
         searchJooble(profile).then((r) => {
           add("jooble", r);
           all.push(...tag(r.jobs, sector));
         }),
       ];
-      // Zoekketen (Google/LinkedIn/Indeed/VDAB-resultaten): enkel voor het eerste groepje titels, budget beperkt.
-      if (i === 0 && (opts.webBudget ?? 6) > 0)
+      // Zoekketen (Google/LinkedIn/Indeed/VDAB-resultaten): voor de eerste twee groepjes titels, budget per groepje.
+      if (i <= 3 && (opts.webBudget ?? 6) > 0)
         tasks.push(
           searchTargetedWeb(profile, { budget: opts.webBudget ?? 6 }).then((r) => {
             add("web", r);
+            all.push(...tag(r.jobs, sector));
+          }),
+        );
+      if (opts.useGoogleJobs && i === 0)
+        tasks.push(
+          searchGoogleJobs(profile).then((r) => {
+            add("google_jobs", r);
+            all.push(...tag(r.jobs, sector));
+          }),
+        );
+      await Promise.all(tasks.map((t) => t.catch(() => undefined)));
+    }
+    // Adzuna: één brede OF-zoekopdracht met paginering, plus rechtstreeks per werkgever.
+    await adzunaSectorSearch(sector, region, radiusKm)
+      .then((r) => {
+        add("adzuna", r);
+        all.push(...tag(r.jobs, sector));
+      })
+      .catch(() => undefined);
+    // Jooble en Google Jobs ook op werkgeversnaam (drie per aanroep), zolang Jooble antwoordt.
+    const employers = SECTOR_EMPLOYERS[sector];
+    for (let i = 0; i < employers.length; i += 3) {
+      const profile = sectorProfile(sector, employers.slice(i, i + 3), region, radiusKm, center);
+      const tasks: Promise<void>[] = [];
+      if (!perSource.jooble?.error)
+        tasks.push(
+          searchJooble(profile).then((r) => {
+            add("jooble", r);
             all.push(...tag(r.jobs, sector));
           }),
         );
