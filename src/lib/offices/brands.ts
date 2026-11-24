@@ -41,11 +41,19 @@ export async function readBrandPages(site: BrandSite, offset: number, limit: num
     Array.from({ length: Math.min(4, slice.length) }, async () => {
       while (next < slice.length) {
         const url = slice[next++];
-        const page = await fetchPage(url).catch(() => null);
+        let page = await fetchPage(url).catch(() => null);
         if (!page || page.status >= 400) continue;
-        const title = page.html?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
-        const parsed = page.html ? parseListingFromHtml(page.html, title) : parseListingFromText(page.text, title);
-        if (!parsed) continue;
+        const parse = (p: typeof page) => {
+          const title = p!.html?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+          return p!.html ? parseListingFromHtml(p!.html, title) : parseListingFromText(p!.text, title);
+        };
+        let parsed = parse(page);
+        // Uit de cache komt enkel tekst, zonder meta-tags (Argenta zet het adres in og:description): dan één keer live ophalen.
+        if (!parsed && page.fromCache) {
+          page = await fetchPage(url, { noCache: true }).catch(() => null);
+          parsed = page && page.status < 400 ? parse(page) : null;
+        }
+        if (!parsed || !page) continue;
         const email = parsed.email ?? (page.html ?? page.text).match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null;
         pages.push({ url, name: cleanName(parsed.name, site.brand), address: parsed.address, postcode: parsed.postcode, municipality: parsed.municipality, phone: parsed.phone, email: email && !/example|sentry|wixpress|\.png$|\.jpg$/.test(email) ? email : null, website: url, lat: parsed.lat ?? null, lng: parsed.lng ?? null });
       }

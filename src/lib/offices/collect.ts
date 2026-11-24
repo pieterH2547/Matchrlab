@@ -305,7 +305,8 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
   for (const l of listings) {
     const exact = typeof l.lat === "number" && typeof l.lng === "number" ? { lat: l.lat, lon: l.lng } : null;
     const pc = exact ?? postcodeCenter(l.postcode);
-    if (!pc || distanceKm(center, pc) > radiusKm + 3) {
+    // Enkel Vlaanderen (en Brussel): een Waals kantoor uit een merksite of register hoort niet op de kaart.
+    if (!pc || distanceKm(center, pc) > radiusKm + 3 || (l.postcode && !isFlemishPostcode(l.postcode))) {
       outside++;
       continue;
     }
