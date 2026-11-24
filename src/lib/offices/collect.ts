@@ -167,14 +167,19 @@ export type BuildResult = {
 };
 
 /** Zoekopdrachten uitvoeren (cache gratis, max `budget` nieuwe), vestigingen classificeren en opslaan. */
-async function runMapsPlan(queries: string[], sectors: OfficeSector[], budget: number): Promise<Omit<BuildResult, "municipalities">> {
+async function runMapsPlan(queries: string[], sectors: OfficeSector[], budget: number, opts: { skipCached?: boolean } = {}): Promise<Omit<BuildResult, "municipalities">> {
   const cached = await cachedPlaceQueries();
   let live = 0;
   let skipped = 0;
   const todo: { q: string; cached: boolean }[] = [];
+  let cachedCount = 0;
   for (const q of queries) {
     const isCached = cached.has(q.trim().toLowerCase());
-    if (isCached) todo.push({ q, cached: true });
+    if (isCached) {
+      cachedCount++;
+      // Heel Vlaanderen: wat al verwerkt is niet nog eens inlezen; anders wordt elke ronde trager.
+      if (!opts.skipCached) todo.push({ q, cached: true });
+    }
     else if (live < budget) {
       live++;
       todo.push({ q, cached: false });
@@ -224,7 +229,7 @@ async function runMapsPlan(queries: string[], sectors: OfficeSector[], budget: n
   );
   const m = await mergeIntoKnown(items);
   const r = await upsertOffices(m.items);
-  return { queries: queries.length, fromCache: todo.filter((t) => t.cached).length, live, skippedForBudget: skipped, found: items.length, merged: m.merged, inserted: r.inserted, updated: r.updated, outOfSector };
+  return { queries: queries.length, fromCache: cachedCount, live, skippedForBudget: skipped, found: items.length, merged: m.merged, inserted: r.inserted, updated: r.updated, outOfSector };
 }
 
 /**
@@ -259,7 +264,7 @@ export async function buildOfficesFlanders(sectors: OfficeSector[], budget = 100
   const munis = flemishMunicipalities();
   const queries: string[] = [];
   for (const m of munis) for (const s of sectors) for (const q of MAPS_QUERIES[s]) queries.push(`${q} ${m}`);
-  return { municipalities: munis.length, ...(await runMapsPlan(queries, sectors, budget)) };
+  return { municipalities: munis.length, ...(await runMapsPlan(queries, sectors, budget, { skipCached: true })) };
 }
 
 export type OsmResult = { label: string; elements: number; offices: number; merged: number; inserted: number; updated: number; note?: string };
