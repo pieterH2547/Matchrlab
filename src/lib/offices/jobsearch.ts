@@ -10,7 +10,7 @@ import type { Job } from "@/lib/db/schema";
 import { searchAdzuna, searchGoogleJobs, searchJooble, searchTargetedWeb } from "@/lib/pipeline/jobboards";
 import { upsertJobs } from "@/lib/pipeline/jobstore";
 import type { NormalizedJob, Profile } from "@/lib/pipeline/types";
-import { extractPostcode, findPlaceName, municipalitiesWithin, strictlyWithinRadius, type GeoPoint } from "@/lib/geo";
+import { distanceKm, extractPostcode, findPlaceName, geocode, municipalitiesWithin, strictlyWithinRadius, type GeoPoint } from "@/lib/geo";
 import { nameTokens, type OfficeSector } from "./classify";
 
 /** Functietitels waarop werkgevers in de sector aanwerven; in groepjes van drie (zoveel titels bevraagt elke bron per keer). */
@@ -129,6 +129,22 @@ export async function recentSweepJobs(days = 30): Promise<Job[]> {
     .limit(5000);
 }
 
+export type RegionJob = OfficeJob & { sector: string; matched: boolean };
+
+/** Alle vacatures uit de zoektocht binnen de straal (of heel Vlaanderen zonder middelpunt), ook als geen kantoor erbij past. */
+export function jobsInRegion(jobs: Job[], center: GeoPoint | null, radiusKm: number, matchedUrls: Set<string>): RegionJob[] {
+  const out: RegionJob[] = [];
+  for (const j of jobs) {
+    if (center) {
+      const p = geocode(j.location);
+      if (!p || distanceKm(center, p) > radiusKm) continue;
+    }
+    const raw = (j.raw ?? {}) as { companyName?: string; sweep?: string };
+    out.push({ title: j.title, url: j.url, source: j.source, company: raw.companyName?.trim() || null, location: j.location, email: (j.descriptionText ?? "").match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null, sector: raw.sweep ?? "", matched: matchedUrls.has(j.url) });
+  }
+  return out.sort((a, b) => (a.company ?? "~").localeCompare(b.company ?? "~") || a.title.localeCompare(b.title));
+}
+
 const GENERIC = new Set(["bank", "verzekeringen", "verzekering", "insurance", "assurances", "kantoor", "group", "groep", "belgium", "belgie", "nv", "sa", "bv"]);
 
 /**
@@ -152,16 +168,19 @@ export function matchJobsToOffices<T extends { id: number; name: string; brand: 
     const company = String(((j.raw ?? {}) as { companyName?: string }).companyName ?? "").trim();
     if (!company) continue;
     const c = norm(company);
-    const cTokens = nameTokens(company).filter((t) => !GENERIC.has(t));
     const pc = extractPostcode(j.location);
     const place = findPlaceName(j.location);
     const muni = place ? norm(place) : null;
     if (!pc && !muni) continue;
+    // Plaatsnamen tellen niet als naamovereenkomst: zoekresultaten geven soms de gemeente als "werkgever".
+    const placeTokens = new Set([...nameTokens(place ?? ""), ...nameTokens(findPlaceName(company) ?? "")]);
+    const cTokens = nameTokens(company).filter((t) => !GENERIC.has(t) && !placeTokens.has(t));
     for (const k of officeKeys) {
       const samePlace = (pc && k.o.postcode === pc) || (muni && k.muni && (k.muni === muni || k.muni.startsWith(muni) || muni.startsWith(k.muni)));
       if (!samePlace) continue;
-      const byBrand = k.brand && (c.includes(k.brand) || k.brand.includes(c));
-      const byName = cTokens.length > 0 && k.tokens.length > 0 && cTokens.some((t) => k.tokens.includes(t));
+      const byBrand = Boolean(k.brand) && (c === k.brand || new RegExp(`(^|[^a-z0-9])${k.brand!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(c));
+      const own = new Set(nameTokens(k.o.municipality ?? ""));
+      const byName = cTokens.some((t) => !own.has(t) && k.tokens.includes(t));
       if (!byBrand && !byName) continue;
       const list = out.get(k.o.id) ?? [];
       if (list.length < 8) list.push({ title: j.title, url: j.url, source: j.source, company, location: j.location, email: (j.descriptionText ?? "").match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null });

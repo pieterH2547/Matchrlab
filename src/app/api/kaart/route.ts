@@ -4,7 +4,7 @@ import { geocode, findPlaceName } from "@/lib/geo";
 import { BRAND_SITES } from "@/lib/offices/brands";
 import { allFlemishOffices, buildOffices, buildOfficesFlanders, crawlOfficeJobs, importBrandSite, importOsmTiles, crossCheckRegistry, enrichFromFvf, importOfficesCsv, importOsm, officesNear, officeStats } from "@/lib/offices/collect";
 import { FLANDERS_CHUNKS } from "@/lib/offices/osm";
-import { sweepJobs } from "@/lib/offices/jobsearch";
+import { jobsInRegion, recentSweepJobs, sweepJobs } from "@/lib/offices/jobsearch";
 
 /** Heel Vlaanderen in vijf zoekgebieden (provinciehoofdsteden, 45 km). */
 const SWEEP_AREAS = [
@@ -55,10 +55,12 @@ export async function GET(req: Request) {
     // Zonder (bekende) woonplaats: heel Vlaanderen.
     if (!place) {
       const offices = await allFlemishOffices(sectors);
-      return NextResponse.json({ admin: Boolean(s.admin), center: null, label: "Vlaanderen", radius, offices, stats, all: true, error: url.searchParams.get("plaats") ? "Die plaats ken ik niet; ik toon heel Vlaanderen. Probeer een gemeente of postcode in Vlaanderen." : undefined });
+      const jobs = jobsInRegion(await recentSweepJobs().catch(() => []), null, 0, new Set(offices.flatMap((o) => o.jobs.map((j) => j.url))));
+      return NextResponse.json({ admin: Boolean(s.admin), center: null, label: "Vlaanderen", radius, offices, jobs, stats, all: true, error: url.searchParams.get("plaats") ? "Die plaats ken ik niet; ik toon heel Vlaanderen. Probeer een gemeente of postcode in Vlaanderen." : undefined });
     }
     const offices = await officesNear(place.center, radius, sectors);
-    return NextResponse.json({ admin: Boolean(s.admin), center: place.center, label: place.label, radius, offices, stats });
+    const jobs = jobsInRegion(await recentSweepJobs().catch(() => []), place.center, radius, new Set(offices.flatMap((o) => o.jobs.map((j) => j.url))));
+    return NextResponse.json({ admin: Boolean(s.admin), center: place.center, label: place.label, radius, offices, jobs, stats });
   } catch (e) {
     return fail(e);
   }

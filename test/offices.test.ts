@@ -157,6 +157,7 @@ describe("kantorenkaart: vacatures koppelen aan kantoren", () => {
     const jobs = [
       { id: 10, title: "Kredietadviseur", url: "https://x/1", source: "adzuna" as const, location: "Mechelen", raw: { companyName: "KBC Bank & Verzekering" }, descriptionText: "Solliciteer via jobs@kbc.be" },
       { id: 11, title: "Schadebeheerder", url: "https://x/2", source: "jooble" as const, location: "2800 Mechelen", raw: { companyName: "De Smet Verzekeringen bv" }, descriptionText: null },
+      { id: 13, title: "Adviseur", url: "https://x/4", source: "web" as const, location: "Mechelen", raw: { companyName: "Mechelen" }, descriptionText: null },
       { id: 12, title: "Bankbediende", url: "https://x/3", source: "adzuna" as const, location: "België", raw: { companyName: "KBC" }, descriptionText: null },
     ];
     const m = matchJobsToOffices(offices, jobs);
