@@ -63,7 +63,8 @@ function FitToRadius({ center, radiusKm }: { center: { lat: number; lon: number 
   const key = center ? `${center.lat},${center.lon},${radiusKm}` : "none";
   useEffect(() => {
     if (!center) {
-      map.fitBounds(FLANDERS_BOUNDS, { padding: [8, 8] });
+      map.invalidateSize();
+      map.fitBounds(FLANDERS_BOUNDS, { padding: [12, 12] });
       return;
     }
     // Cirkel nog niet op de kaart: bounds zelf berekenen (vierkant van 2 × straal rond het middelpunt).
@@ -91,7 +92,7 @@ export default function OfficeMap({ center, radiusKm, offices, selectedId, hover
   const markers = useRef(new Map<number, L.Marker>());
   const initial = useMemo<[number, number]>(() => (center ? [center.lat, center.lon] : [51.05, 4.4]), []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <MapContainer center={initial} zoom={center ? 11 : 8} minZoom={8} maxBounds={FLANDERS_BOUNDS} maxBoundsViscosity={0.9} zoomControl={false} className="h-full w-full" attributionControl preferCanvas>
+    <MapContainer center={initial} zoom={center ? 11 : 8} minZoom={8} zoomSnap={0.25} zoomDelta={0.5} maxBounds={FLANDERS_BOUNDS.pad(0.35)} maxBoundsViscosity={0.9} zoomControl={false} className="h-full w-full" attributionControl preferCanvas>
       {/* OpenStreetMap-tegels (geen key nodig), gedempt via CSS zodat de kantoren eruit springen. */}
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" className="basemap" maxZoom={19} />
       {/* Buiten Vlaanderen gedempt, de gewestgrens in navy: zo is meteen duidelijk wat meetelt. */}
