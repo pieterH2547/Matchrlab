@@ -1,0 +1,391 @@
+/**
+ * Kantorenkaart, deel 2: kantoren verzamelen, verrijken en opvragen.
+ *
+ * Bronnen, in deze volgorde van vertrouwen:
+ *  - google_maps  elke bank- en verzekeringsvestiging per gemeente binnen de straal (Serper, 14 dagen cache);
+ *  - fvf          vindeenverzekeringsmakelaar.be (de makelaarsgids van FVF): profielpagina's via de zoekketen
+ *                 (site:-zoekopdracht per gemeente) of een geüpload CSV-bestand;
+ *  - fsma         het FSMA-register van verzekeringstussenpersonen, zoals al geïmporteerd in `registry_entries`.
+ * Elke bron voegt zichzelf toe aan `sources`; een kantoor met twee bronnen is bevestigd.
+ * Alles begrensd: zoekbudget per aanroep, 4 tegelijk, time-outs. Herhalen is goedkoop dankzij de caches.
+ */
+import { and, between, eq, inArray, like, sql } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
+import type { Office } from "@/lib/db/schema";
+import { placesSearchCached, placesSearchFull, webSearch } from "@/lib/search";
+import { fetchPage } from "@/lib/fetch";
+import { registrableDomain } from "@/lib/blocklist";
+import { distanceKm, municipalitiesWithin, type GeoPoint } from "@/lib/geo";
+import { parseRegistry } from "@/lib/sector/registry";
+import {
+  classify,
+  detectBrand,
+  isFlemishPostcode,
+  MAPS_QUERIES,
+  officeKey,
+  parseListingFromHtml,
+  parseListingFromText,
+  postcodeCenter,
+  postcodeName,
+  sameOffice,
+  splitAddress,
+  type OfficeKind,
+  type OfficeSector,
+} from "./classify";
+
+export type OfficeInput = {
+  sector: OfficeSector;
+  kind: OfficeKind;
+  dedupeKey: string;
+  name: string;
+  brand: string | null;
+  address: string | null;
+  postcode: string | null;
+  municipality: string | null;
+  lat: number | null;
+  lng: number | null;
+  geoPrecision: "exact" | "postcode";
+  website: string | null;
+  domain: string | null;
+  phone: string | null;
+  enterpriseNumber: string | null;
+  rating: number | null;
+  ratingCount: number | null;
+  category: string | null;
+  source: string;
+};
+
+/** Kantoren opslaan: nieuw = invoegen; bestaand = bron toevoegen en lege velden aanvullen. */
+export async function upsertOffices(items: OfficeInput[]): Promise<{ inserted: number; updated: number }> {
+  if (!items.length) return { inserted: 0, updated: 0 };
+  const unique = Array.from(new Map(items.map((i) => [i.dedupeKey, i])).values());
+  const keys = unique.map((i) => i.dedupeKey);
+  const existing = new Set((await db().select({ k: schema.offices.dedupeKey }).from(schema.offices).where(inArray(schema.offices.dedupeKey, keys))).map((r) => r.k));
+  const now = new Date();
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    await db()
+      .insert(schema.offices)
+      .values(
+        chunk.map(({ source, ...o }) => ({
+          ...o,
+          name: o.name.slice(0, 200),
+          address: o.address?.slice(0, 300) ?? null,
+          sources: [source],
+          firstSeenAt: now,
+          lastSeenAt: now,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: schema.offices.dedupeKey,
+        set: {
+          lastSeenAt: now,
+          sources: sql`(select jsonb_agg(distinct x) from jsonb_array_elements(${schema.offices.sources} || excluded.sources) as t(x))`,
+          brand: sql`coalesce(${schema.offices.brand}, excluded.brand)`,
+          address: sql`coalesce(${schema.offices.address}, excluded.address)`,
+          postcode: sql`coalesce(${schema.offices.postcode}, excluded.postcode)`,
+          municipality: sql`coalesce(${schema.offices.municipality}, excluded.municipality)`,
+          website: sql`coalesce(${schema.offices.website}, excluded.website)`,
+          domain: sql`coalesce(${schema.offices.domain}, excluded.domain)`,
+          phone: sql`coalesce(${schema.offices.phone}, excluded.phone)`,
+          enterpriseNumber: sql`coalesce(${schema.offices.enterpriseNumber}, excluded.enterprise_number)`,
+          rating: sql`coalesce(excluded.rating, ${schema.offices.rating})`,
+          ratingCount: sql`coalesce(excluded.rating_count, ${schema.offices.ratingCount})`,
+          category: sql`coalesce(${schema.offices.category}, excluded.category)`,
+          // Een exacte ligging wint altijd van een postcodemiddelpunt.
+          lat: sql`case when ${schema.offices.geoPrecision} = 'postcode' and excluded.geo_precision = 'exact' then excluded.lat else coalesce(${schema.offices.lat}, excluded.lat) end`,
+          lng: sql`case when ${schema.offices.geoPrecision} = 'postcode' and excluded.geo_precision = 'exact' then excluded.lng else coalesce(${schema.offices.lng}, excluded.lng) end`,
+          geoPrecision: sql`case when excluded.geo_precision = 'exact' then 'exact' else ${schema.offices.geoPrecision} end`,
+        },
+      });
+  }
+  const inserted = keys.filter((k) => !existing.has(k)).length;
+  return { inserted, updated: unique.length - inserted };
+}
+
+export type BuildResult = {
+  municipalities: number;
+  queries: number;
+  fromCache: number;
+  live: number;
+  skippedForBudget: number;
+  found: number;
+  inserted: number;
+  updated: number;
+  outOfSector: number;
+};
+
+/**
+ * Google Maps afgaan voor elke gemeente binnen de straal: soort kantoor × gemeente, dichtstbij eerst.
+ * `budget` = max nieuwe (betalende) Maps-vragen in deze aanroep; wat al in de cache zit is gratis en telt niet.
+ * Opnieuw aanroepen gaat verder waar het budget ophield.
+ */
+export async function buildOffices(center: GeoPoint, radiusKm: number, sectors: OfficeSector[], budget = 40): Promise<BuildResult> {
+  const munis = municipalitiesWithin(center, radiusKm, 80);
+  const queries: string[] = [];
+  for (const m of munis) for (const s of sectors) for (const q of MAPS_QUERIES[s]) queries.push(`${q} ${m.name}`);
+  const plan: { q: string; cached: boolean }[] = [];
+  for (const q of queries) plan.push({ q, cached: await placesSearchCached(q) });
+  let live = 0;
+  let skipped = 0;
+  const todo = plan.filter((p) => {
+    if (p.cached) return true;
+    if (live < budget) {
+      live++;
+      return true;
+    }
+    skipped++;
+    return false;
+  });
+  const items: OfficeInput[] = [];
+  let outOfSector = 0;
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(4, todo.length) }, async () => {
+      while (next < todo.length) {
+        const { q } = todo[next++];
+        const places = await placesSearchFull(q).catch(() => null);
+        for (const p of places ?? []) {
+          const c = classify(p.name, p.category);
+          if (!c || !sectors.includes(c.sector)) {
+            outOfSector++;
+            continue;
+          }
+          const { postcode, municipality } = splitAddress(p.address);
+          if (postcode && !isFlemishPostcode(postcode)) continue;
+          const domain = p.website ? registrableDomain(p.website) : null;
+          items.push({
+            sector: c.sector,
+            kind: c.kind,
+            dedupeKey: officeKey({ cid: p.cid, name: p.name, postcode }),
+            name: p.name,
+            brand: detectBrand(p.name, c.sector),
+            address: p.address || null,
+            postcode,
+            municipality,
+            lat: p.lat,
+            lng: p.lng,
+            geoPrecision: "exact",
+            website: p.website,
+            domain,
+            phone: p.phone,
+            enterpriseNumber: null,
+            rating: p.rating,
+            ratingCount: p.ratingCount,
+            category: p.category || null,
+            source: "google_maps",
+          });
+        }
+      }
+    }),
+  );
+  const r = await upsertOffices(items);
+  return { municipalities: munis.length, queries: queries.length, fromCache: todo.filter((t) => t.cached).length, live, skippedForBudget: skipped, found: items.length, inserted: r.inserted, updated: r.updated, outOfSector };
+}
+
+/** Kantoren in het gebied (grove rechthoek), om nieuwe bronnen aan bestaande vestigingen te koppelen. */
+async function officesInBox(center: GeoPoint, radiusKm: number): Promise<Office[]> {
+  const dLat = radiusKm / 111;
+  const dLng = radiusKm / (111 * Math.cos((center.lat * Math.PI) / 180));
+  return db()
+    .select()
+    .from(schema.offices)
+    .where(and(between(schema.offices.lat, center.lat - dLat, center.lat + dLat), between(schema.offices.lng, center.lon - dLng, center.lon + dLng)));
+}
+
+type Listing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; website: string | null; enterpriseNumber: string | null };
+
+/**
+ * Lijst van makelaars (uit FVF-gids of FSMA-register) tegen de kaart leggen: bestaand kantoor = bron toevoegen
+ * (bevestigd), onbekend kantoor = toevoegen op het middelpunt van zijn postcode (bij benadering).
+ */
+async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listing[], source: string, kind: OfficeKind): Promise<{ matched: number; added: number; outside: number }> {
+  const known = await officesInBox(center, radiusKm);
+  const items: OfficeInput[] = [];
+  let matched = 0;
+  let outside = 0;
+  for (const l of listings) {
+    const pc = postcodeCenter(l.postcode);
+    if (!pc || distanceKm(center, pc) > radiusKm + 3) {
+      outside++;
+      continue;
+    }
+    const hit = known.find((k) => sameOffice({ name: k.name, postcode: k.postcode }, { name: l.name, postcode: l.postcode }));
+    if (hit) {
+      matched++;
+      items.push({
+        sector: hit.sector as OfficeSector,
+        kind: hit.kind as OfficeKind,
+        dedupeKey: hit.dedupeKey,
+        name: hit.name,
+        brand: hit.brand,
+        address: l.address,
+        postcode: l.postcode,
+        municipality: l.municipality,
+        lat: null,
+        lng: null,
+        geoPrecision: "postcode",
+        website: l.website,
+        domain: l.website ? registrableDomain(l.website) : null,
+        phone: l.phone,
+        enterpriseNumber: l.enterpriseNumber,
+        rating: null,
+        ratingCount: null,
+        category: null,
+        source,
+      });
+      continue;
+    }
+    items.push({
+      sector: "verzekeringen",
+      kind,
+      dedupeKey: officeKey({ enterpriseNumber: l.enterpriseNumber, name: l.name, postcode: l.postcode }),
+      name: l.name,
+      brand: detectBrand(l.name, "verzekeringen"),
+      address: l.address,
+      postcode: l.postcode,
+      municipality: l.municipality ?? postcodeName(l.postcode),
+      lat: pc.lat,
+      lng: pc.lon,
+      geoPrecision: "postcode",
+      website: l.website,
+      domain: l.website ? registrableDomain(l.website) : null,
+      phone: l.phone,
+      enterpriseNumber: l.enterpriseNumber,
+      rating: null,
+      ratingCount: null,
+      category: null,
+      source,
+    });
+  }
+  const r = await upsertOffices(items);
+  return { matched, added: r.inserted, outside };
+}
+
+/** FSMA-register (al geïmporteerd via Sectoren) tegen de kaart leggen. */
+export async function crossCheckRegistry(center: GeoPoint, radiusKm: number): Promise<{ entries: number; matched: number; added: number; outside: number }> {
+  const rows = await db()
+    .select()
+    .from(schema.registryEntries)
+    .where(and(eq(schema.registryEntries.sector, "verzekeringsmakelaars"), like(schema.registryEntries.source, "fsma%")));
+  const listings: Listing[] = rows.map((r) => ({ name: r.name, address: r.address, postcode: r.postcode, municipality: r.municipality, phone: null, website: r.website, enterpriseNumber: r.enterpriseNumber }));
+  const m = await mergeListings(center, radiusKm, listings, "fsma", "verzekeringsmakelaar");
+  return { entries: rows.length, ...m };
+}
+
+const FVF_HOST = "vindeenverzekeringsmakelaar.be";
+
+/**
+ * vindeenverzekeringsmakelaar.be (FVF) via de zoekketen: per gemeente de profielpagina's op die site zoeken,
+ * elke pagina lezen (page_cache) en naam + adres eruit halen. Niets wordt automatisch doorzocht op de site zelf.
+ */
+export async function enrichFromFvf(center: GeoPoint, radiusKm: number, budget = 12): Promise<{ municipalities: number; searches: number; pages: number; parsed: number; matched: number; added: number; outside: number; note?: string }> {
+  const munis = municipalitiesWithin(center, radiusKm, budget);
+  const urls = new Set<string>();
+  let searches = 0;
+  for (const m of munis) {
+    const r = await webSearch(`site:${FVF_HOST} ${m.name}`, { count: 20 }).catch(() => null);
+    if (r === null) continue;
+    searches++;
+    for (const x of r) if (x.url.includes(FVF_HOST) && !/\/(zoek|search|over|contact|privacy)\b/i.test(new URL(x.url).pathname) && new URL(x.url).pathname.length > 1) urls.add(x.url);
+  }
+  if (!searches) return { municipalities: munis.length, searches: 0, pages: 0, parsed: 0, matched: 0, added: 0, outside: 0, note: "Geen zoekmachine beschikbaar; vul Serper of een reserve in via Instellingen." };
+  const listings: Listing[] = [];
+  const list = Array.from(urls).slice(0, 60);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(4, list.length) }, async () => {
+      while (next < list.length) {
+        const url = list[next++];
+        const page = await fetchPage(url).catch(() => null);
+        if (!page || page.status >= 400) continue;
+        const title = page.html?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() ?? "").replace(/[-_]+/g, " ");
+        const parsed = page.html ? parseListingFromHtml(page.html, title) : parseListingFromText(page.text, title);
+        if (parsed) listings.push(parsed);
+      }
+    }),
+  );
+  const m = await mergeListings(center, radiusKm, listings, "fvf", "verzekeringsmakelaar");
+  return { municipalities: munis.length, searches, pages: list.length, parsed: listings.length, ...m, note: list.length === 0 ? `Geen pagina's van ${FVF_HOST} in de zoekresultaten; probeer een CSV-import.` : undefined };
+}
+
+/** CSV-bestand van een gids of register (naam, adres, postcode, gemeente, website, ondernemingsnummer) tegen de kaart leggen. */
+export async function importOfficesCsv(center: GeoPoint, radiusKm: number, csv: string, source: string): Promise<{ rows: number; matched: number; added: number; outside: number; columns: string[] }> {
+  const parsed = parseRegistry(csv);
+  const listings: Listing[] = parsed.rows.map((r) => ({ name: r.name, address: r.address, postcode: r.postcode, municipality: r.municipality, phone: null, website: r.website, enterpriseNumber: r.enterpriseNumber }));
+  const m = await mergeListings(center, radiusKm, listings, source, "verzekeringsmakelaar");
+  return { rows: parsed.rows.length, ...m, columns: parsed.columns };
+}
+
+export type OfficeView = {
+  id: number;
+  sector: OfficeSector;
+  kind: OfficeKind;
+  name: string;
+  brand: string | null;
+  address: string | null;
+  postcode: string | null;
+  municipality: string | null;
+  lat: number;
+  lng: number;
+  approximate: boolean;
+  website: string | null;
+  phone: string | null;
+  rating: number | null;
+  ratingCount: number | null;
+  sources: string[];
+  verified: boolean;
+  distanceKm: number;
+  openJobs: number;
+  careersUrl: string | null;
+  lastSeenAt: string;
+};
+
+/** Alle kantoren binnen de straal, dichtstbij eerst, met het aantal open vacatures van hun website (als we die kennen). */
+export async function officesNear(center: GeoPoint, radiusKm: number, sectors: OfficeSector[]): Promise<OfficeView[]> {
+  const rows = (await officesInBox(center, radiusKm)).filter((o) => o.lat !== null && o.lng !== null && sectors.includes(o.sector as OfficeSector));
+  const domains = Array.from(new Set(rows.map((r) => r.domain).filter((d): d is string => Boolean(d))));
+  const companies = domains.length
+    ? await db().select({ domain: schema.companies.domain, open: schema.companies.openJobsCount, jobsUrl: schema.companies.jobsUrl }).from(schema.companies).where(inArray(schema.companies.domain, domains))
+    : [];
+  const byDomain = new Map(companies.map((c) => [c.domain, c]));
+  const out: OfficeView[] = [];
+  for (const o of rows) {
+    const d = distanceKm(center, { lat: o.lat!, lon: o.lng! });
+    if (d > radiusKm) continue;
+    const c = o.domain ? byDomain.get(o.domain) : undefined;
+    out.push({
+      id: o.id,
+      sector: o.sector as OfficeSector,
+      kind: o.kind as OfficeKind,
+      name: o.name,
+      brand: o.brand,
+      address: o.address,
+      postcode: o.postcode,
+      municipality: o.municipality,
+      lat: o.lat!,
+      lng: o.lng!,
+      approximate: o.geoPrecision !== "exact",
+      website: o.website,
+      phone: o.phone,
+      rating: o.rating,
+      ratingCount: o.ratingCount,
+      sources: o.sources,
+      verified: o.sources.length >= 2 || o.sources.includes("fsma"),
+      distanceKm: Math.round(d * 10) / 10,
+      openJobs: c?.open ?? 0,
+      careersUrl: c?.jobsUrl ?? null,
+      lastSeenAt: o.lastSeenAt.toISOString(),
+    });
+  }
+  return out.sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+/** Totalen voor het beheer: kantoren per sector en per bron. */
+export async function officeStats(): Promise<{ sector: string; n: number; verified: number }[]> {
+  const rows = await db()
+    .select({ sector: schema.offices.sector, n: sql<number>`count(*)`, verified: sql<number>`count(*) filter (where jsonb_array_length(${schema.offices.sources}) >= 2 or ${schema.offices.sources} ? 'fsma')` })
+    .from(schema.offices)
+    .groupBy(schema.offices.sector);
+  return rows.map((r) => ({ sector: r.sector, n: Number(r.n), verified: Number(r.verified) }));
+}

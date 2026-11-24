@@ -34,6 +34,24 @@ werkgever), elk met een score op 10 (kerntaken 3, vaardigheden 3, senioriteit 2,
 en één risico, en max 3 open vragen aan de kandidaat. Enkel rechtstreekse werkgevers met vast contract binnen de straal;
 interim, freelance, tijdelijk, bureaus, harde blokkades en alles onder 6/10 vallen weg. Geen outreach, geen drafts.
 
+## Kantorenkaart: bank en verzekeringen (/kaart)
+
+Matchr richt zich op bank- en verzekeringskantoren in Vlaanderen. De kantorenkaart toont **elke vestiging** binnen een
+straal (standaard 20 km) rond de woonplaats van een kandidaat, ook zonder vacature: elk kantoor is een kans. Navy =
+bankkantoor, goud = verzekeringskantoor, groene badge = open vacatures op hun website (uit de bestaande vacature-index),
+ring = bevestigd door twee bronnen, stippellijn = ligging bij benadering (postcodemiddelpunt).
+
+Bronnen, die elkaar aanvullen in de tabel `offices` (één rij per vestiging, ontdubbeld op Google-id, ondernemingsnummer of naam + postcode):
+
+| Bron | Hoe | Wat |
+| --- | --- | --- |
+| Google Maps (Serper) | "bankkantoor / bank / verzekeringsmakelaar / verzekeringskantoor / verzekeringen" × elke gemeente binnen de straal, dichtstbij eerst; max 40 nieuwe zoekopdrachten per ronde, cache 14 dagen (opnieuw klikken gaat verder) | naam, adres, exacte coördinaten, telefoon, website, beoordeling |
+| FVF-gids (vindeenverzekeringsmakelaar.be) | profielpagina's via de zoekketen (`site:` per gemeente) en `page_cache`; of een CSV-export | naam, adres, FSMA-/ondernemingsnummer → bevestiging of nieuw kantoor |
+| FSMA-register | de lijst die onder Instellingen → Sectoren geïmporteerd is | naam, adres, ondernemingsnummer → bevestiging of nieuw kantoor |
+
+Beheerders (teamwachtwoord) bouwen de kaart per regio op met de knoppen onderaan het paneel; iedereen die aangemeld is mag kijken.
+De kaarttegels komen van OpenStreetMap (geen key). Code: `src/lib/offices/` (classify = zuivere logica, collect = verzamelen en opvragen), `src/app/api/kaart`, `src/components/kaart/`.
+
 ## AI-model: OpenAI (standaard), Claude optioneel
 
 Alle AI-aanroepen lopen via `llmJson` in `src/lib/llm.ts`. `AI_PROVIDER` staat standaard op `openai`; `auto` geeft

@@ -94,6 +94,58 @@ a {
   text-transform: uppercase;
 }
 
+/* Kantorenkaart: schuifbalk in goud, Leaflet-popups in de huisstijl. */
+input.radius {
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--gold) 0, var(--gold) calc((var(--v, 20) - 5) / 45 * 100%), var(--line) 0);
+  outline: none;
+}
+input.radius::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--navy);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 6px rgba(27, 24, 69, 0.35);
+  cursor: pointer;
+}
+input.radius::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--navy);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 6px rgba(27, 24, 69, 0.35);
+  cursor: pointer;
+}
+.office-popup .leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(27, 24, 69, 0.18);
+  padding: 4px 2px;
+}
+.office-popup .leaflet-popup-content {
+  margin: 10px 12px;
+  line-height: 1.4;
+}
+.office-popup .leaflet-popup-tip {
+  box-shadow: none;
+}
+.office-pin,
+.office-home {
+  background: transparent;
+  border: 0;
+}
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: #eef0ec;
+}
+.leaflet-tile-pane .basemap {
+  filter: saturate(0.45) contrast(0.92) brightness(1.04);
+}
+
 @keyframes pulse-dot {
   0%,
   100% {

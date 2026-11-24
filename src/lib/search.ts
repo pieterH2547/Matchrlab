@@ -204,11 +204,65 @@ async function writeSearchCache(key: string, kind: string, results: unknown): Pr
 }
 
 async function placesSearchLive(key: string, query: string): Promise<PlaceResult[] | null> {
+  const full = await placesSearchFullLive(key, query);
+  return full ? full.filter((p) => p.website).map((p) => ({ name: p.name, website: p.website!, address: p.address, category: p.category, lat: p.lat, lng: p.lng })) : null;
+}
+
+/** Volledige vestiging uit Google Maps: ook zonder website, met telefoon, beoordeling en Google-id (cid). */
+export type PlaceFull = {
+  name: string;
+  website: string | null;
+  address: string;
+  category: string;
+  lat: number | null;
+  lng: number | null;
+  phone: string | null;
+  rating: number | null;
+  ratingCount: number | null;
+  cid: string | null;
+};
+
+/**
+ * Google Maps via Serper, maar dan elke vestiging (ook zonder website): voor de kantorenkaart, waar een
+ * bankkantoor of makelaar zonder eigen site evengoed een kans is. Zelfde cache van 14 dagen.
+ */
+export async function placesSearchFull(query: string): Promise<PlaceFull[] | null> {
+  const key = await getSetting("SERPER_API_KEY");
+  if (!key) return null;
+  const cacheKey = `mapsfull:${query.trim().toLowerCase()}`;
+  const cached = await readSearchCache<PlaceFull[]>(cacheKey, 14).catch(() => null);
+  if (cached) {
+    countCall("serper_maps_cache");
+    return cached;
+  }
+  const fresh = await placesSearchFullLive(key, query);
+  if (fresh) await writeSearchCache(cacheKey, "mapsfull", fresh).catch(() => undefined);
+  return fresh;
+}
+
+/** Staat deze Maps-vraag al in de cache? Dan kost opnieuw opbouwen niets. */
+export async function placesSearchCached(query: string): Promise<boolean> {
+  return (await readSearchCache<PlaceFull[]>(`mapsfull:${query.trim().toLowerCase()}`, 14).catch(() => null)) !== null;
+}
+
+async function placesSearchFullLive(key: string, query: string): Promise<PlaceFull[] | null> {
   countCall("serper_maps");
   const call = () => postJson("https://google.serper.dev/places", { q: query, gl: "be", hl: "nl" }, { "x-api-key": key });
   // Eén nieuwe poging na een korte pauze: een tijdelijke weigering (rate limit) mag de ontdekking niet stilleggen.
   const data = ((await call()) ?? (await new Promise((r) => setTimeout(r, 1500)).then(call))) as {
-    places?: { title?: string; website?: string; address?: string; category?: string; type?: string; latitude?: number; longitude?: number }[];
+    places?: {
+      title?: string;
+      website?: string;
+      address?: string;
+      category?: string;
+      type?: string;
+      latitude?: number;
+      longitude?: number;
+      phoneNumber?: string;
+      rating?: number;
+      ratingCount?: number;
+      cid?: string | number;
+    }[];
   } | null;
   if (!data) {
     noteFailure("Google Maps (Serper) gaf geen antwoord.");
@@ -216,14 +270,18 @@ async function placesSearchLive(key: string, query: string): Promise<PlaceResult
   }
   await recordSearches(1).catch(() => undefined);
   return (data.places ?? [])
-    .filter((p) => p.website && /^https?:\/\//.test(p.website))
+    .filter((p) => (p.title ?? "").trim())
     .map((p) => ({
       name: (p.title ?? "").trim(),
-      website: p.website!,
+      website: p.website && /^https?:\/\//.test(p.website) ? p.website : null,
       address: (p.address ?? "").trim(),
       category: (p.category ?? p.type ?? "").trim(),
       lat: typeof p.latitude === "number" ? p.latitude : null,
       lng: typeof p.longitude === "number" ? p.longitude : null,
+      phone: (p.phoneNumber ?? "").trim() || null,
+      rating: typeof p.rating === "number" ? p.rating : null,
+      ratingCount: typeof p.ratingCount === "number" ? p.ratingCount : null,
+      cid: p.cid !== undefined && p.cid !== null && String(p.cid) ? String(p.cid) : null,
     }));
 }
 

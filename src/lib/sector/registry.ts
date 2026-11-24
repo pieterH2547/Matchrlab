@@ -151,4 +151,8 @@ export const SECTORS: Record<string, { label: string; statute?: RegExp; mapsQuer
     label: "Financiële advieskantoren",
     mapsQueries: ["financieel adviseur", "kredietbemiddelaar", "bankkantoor zelfstandig"],
   },
+  bankkantoren: {
+    label: "Bankkantoren",
+    mapsQueries: ["bankkantoor", "bank", "zelfstandig bankagent"],
+  },
 };

@@ -130,6 +130,48 @@ export const registryEntries = pgTable(
   (t) => [uniqueIndex("registry_dedupe_idx").on(t.dedupeKey), index("registry_sector_idx").on(t.sector, t.status)],
 );
 
+/**
+ * Kantoren op de kaart: elke fysieke vestiging van een bank of verzekeringskantoor in Vlaanderen, ook zonder
+ * vacature. Eén rij per vestiging (een bankmerk heeft er honderden), los van `companies` (één rij per domein).
+ * Bronnen worden opgestapeld: google_maps, fvf (vindeenverzekeringsmakelaar.be), fsma (register), web.
+ */
+export const offices = pgTable(
+  "offices",
+  {
+    id: serial("id").primaryKey(),
+    /** bank | verzekeringen */
+    sector: text("sector").notNull(),
+    /** bankkantoor | verzekeringsmakelaar | verzekeringsagent | financieel-adviseur | onbekend */
+    kind: text("kind").notNull().default("onbekend"),
+    /** Ontdubbelsleutel: Google-cid, anders ondernemingsnummer, anders naam + postcode. */
+    dedupeKey: text("dedupe_key").notNull(),
+    name: text("name").notNull(),
+    /** Merk of groep (KBC, Belfius, AXA, …) als dat uit de naam blijkt. */
+    brand: text("brand"),
+    address: text("address"),
+    postcode: text("postcode"),
+    municipality: text("municipality"),
+    lat: real("lat"),
+    lng: real("lng"),
+    /** exact (Google Maps) | postcode (middelpunt van de postcode, bv. uit het register) */
+    geoPrecision: text("geo_precision").notNull().default("exact"),
+    website: text("website"),
+    domain: text("domain"),
+    phone: text("phone"),
+    enterpriseNumber: text("enterprise_number"),
+    rating: real("rating"),
+    ratingCount: integer("rating_count"),
+    category: text("category"),
+    sources: jsonb("sources").$type<string[]>().notNull().default([]),
+    companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("offices_dedupe_idx").on(t.dedupeKey), index("offices_sector_idx").on(t.sector), index("offices_geo_idx").on(t.lat, t.lng), index("offices_domain_idx").on(t.domain)],
+);
+
+export type Office = typeof offices.$inferSelect;
+
 /** Cache van betalende zoekopdrachten (bv. Google Maps via Serper): dezelfde vraag niet opnieuw betalen. */
 export const searchCache = pgTable("search_cache", {
   key: text("key").primaryKey(),

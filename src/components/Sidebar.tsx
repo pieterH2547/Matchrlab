@@ -42,6 +42,10 @@ export function Sidebar({ index, me, activeThreadId, onOpen, onNewRun }: { index
         <button type="button" onClick={onNewRun} className="w-full flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 bg-navy text-white hover:bg-navy-2 transition-colors">
           <span aria-hidden>＋</span> Nieuwe run
         </button>
+        <Link href="/kaart" className="w-full flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 border border-line bg-white text-navy hover:border-navy transition-colors">
+          <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full bg-gold" /> Kantorenkaart
+          <span className="ml-auto text-[11px] font-normal text-ink-faint">bank &amp; verzekeringen</span>
+        </Link>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}

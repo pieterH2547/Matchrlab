@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 /** Dunne balk boven de thread: zijbalk tonen/verbergen en de huidige kandidaat. Merk staat in de zijbalk. */
 export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen, title }: { onNewRun: () => void; onToggleSidebar: () => void; sidebarOpen: boolean; title?: string | null }) {
   return (
@@ -26,9 +28,14 @@ export function Topbar({ onNewRun, onToggleSidebar, sidebarOpen, title }: { onNe
       )}
       <span className="text-[13px] text-ink-faint truncate">{title ?? ""}</span>
       {!sidebarOpen && (
-        <button type="button" onClick={onNewRun} className="ml-auto text-sm font-medium rounded-lg px-3 py-1.5 bg-navy text-white hover:bg-navy-2">
-          Nieuwe run
-        </button>
+        <span className="ml-auto flex items-center gap-2">
+          <Link href="/kaart" className="text-sm font-medium rounded-lg px-3 py-1.5 border border-line text-navy hover:border-navy">
+            Kantorenkaart
+          </Link>
+          <button type="button" onClick={onNewRun} className="text-sm font-medium rounded-lg px-3 py-1.5 bg-navy text-white hover:bg-navy-2">
+            Nieuwe run
+          </button>
+        </span>
       )}
     </header>
   );

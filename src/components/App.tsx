@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunView, Profile } from "@/lib/pipeline/types";
 import { createRun, fetchIndex, fetchThread, runStep, type RunsIndex } from "./api";
@@ -188,6 +189,13 @@ function EmptyState() {
         <span className="text-gold">.</span>
       </h1>
       <p className="mt-3 text-[15px] text-ink-soft">Sleep een cv in het veld hieronder.</p>
+      <p className="mt-6 text-[13px] text-ink-faint">
+        Focus: bank en verzekeringen in Vlaanderen.{" "}
+        <Link href="/kaart" className="text-navy underline decoration-gold decoration-2 underline-offset-2">
+          Open de kantorenkaart
+        </Link>{" "}
+        voor elk kantoor binnen 20 km van een woonplaats, ook zonder vacature.
+      </p>
     </div>
   );
 }
