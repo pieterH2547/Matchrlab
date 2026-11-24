@@ -291,7 +291,7 @@ async function officesInBox(center: GeoPoint, radiusKm: number): Promise<Office[
     .where(and(between(schema.offices.lat, center.lat - dLat, center.lat + dLat), between(schema.offices.lng, center.lon - dLng, center.lon + dLng)));
 }
 
-type Listing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; email?: string | null; website: string | null; enterpriseNumber: string | null };
+type Listing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; email?: string | null; website: string | null; enterpriseNumber: string | null; lat?: number | null; lng?: number | null };
 
 /**
  * Lijst van makelaars (uit FVF-gids of FSMA-register) tegen de kaart leggen: bestaand kantoor = bron toevoegen
@@ -303,12 +303,13 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
   let matched = 0;
   let outside = 0;
   for (const l of listings) {
-    const pc = postcodeCenter(l.postcode);
+    const exact = typeof l.lat === "number" && typeof l.lng === "number" ? { lat: l.lat, lon: l.lng } : null;
+    const pc = exact ?? postcodeCenter(l.postcode);
     if (!pc || distanceKm(center, pc) > radiusKm + 3) {
       outside++;
       continue;
     }
-    const hit = known.find((k) => sameOffice({ name: k.name, postcode: k.postcode }, { name: l.name, postcode: l.postcode }));
+    const hit = known.find((k) => sameOffice({ name: k.name, postcode: k.postcode }, { name: l.name, postcode: l.postcode }) || (exact && sameSpot({ sector: opts.sector ?? "verzekeringen", name: l.name, brand: opts.brand ?? null, postcode: l.postcode, lat: exact.lat, lng: exact.lon }, k)));
     if (hit) {
       matched++;
       items.push({
@@ -320,9 +321,9 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
         address: l.address,
         postcode: l.postcode,
         municipality: l.municipality,
-        lat: null,
-        lng: null,
-        geoPrecision: "postcode",
+        lat: exact?.lat ?? null,
+        lng: exact?.lon ?? null,
+        geoPrecision: exact ? "exact" : "postcode",
         website: l.website,
         domain: l.website ? registrableDomain(l.website) : null,
         phone: l.phone,
@@ -347,7 +348,7 @@ async function mergeListings(center: GeoPoint, radiusKm: number, listings: Listi
       municipality: l.municipality ?? postcodeName(l.postcode),
       lat: pc.lat,
       lng: pc.lon,
-      geoPrecision: "postcode",
+      geoPrecision: exact ? "exact" : "postcode",
       website: l.website,
       domain: l.website ? registrableDomain(l.website) : null,
       phone: l.phone,
@@ -375,7 +376,7 @@ export async function importBrandSite(key: string, offset = 0, limit = 40): Prom
   const site = BRAND_SITES.find((b) => b.key === key);
   if (!site) throw new Error("Onbekend merk.");
   const { total, pages, next } = await readBrandPages(site, offset, limit);
-  const listings: Listing[] = pages.map((p) => ({ name: p.name, address: p.address, postcode: p.postcode, municipality: p.municipality, phone: p.phone, email: p.email, website: p.website, enterpriseNumber: null }));
+  const listings: Listing[] = pages.map((p) => ({ name: p.name, address: p.address, postcode: p.postcode, municipality: p.municipality, phone: p.phone, email: p.email, website: p.website, enterpriseNumber: null, lat: p.lat, lng: p.lng }));
   const m = await mergeListings(FLANDERS_CENTER, FLANDERS_RADIUS_KM, listings, `site:${site.key}`, "bankkantoor", { sector: site.sector, brand: site.brand });
   return { brand: site.brand, total, read: pages.length, ...m, next };
 }

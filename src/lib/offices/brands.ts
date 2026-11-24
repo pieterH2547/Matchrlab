@@ -5,14 +5,14 @@
  * exact zodra Google Maps of OpenStreetMap hetzelfde kantoor kent (samenvoegen op naam + postcode).
  */
 import { fetchPage, fetchRaw } from "@/lib/fetch";
-import { parseListingFromHtml, parseListingFromText } from "./classify";
+import { parseListingFromHtml, parseListingFromText, titleCase } from "./classify";
 import type { OfficeSector } from "./classify";
 
 export type BrandSite = { key: string; brand: string; sector: OfficeSector; sitemaps: string[]; pattern: RegExp };
 
 export const BRAND_SITES: BrandSite[] = [
   { key: "argenta", brand: "Argenta", sector: "bank", sitemaps: ["https://www.argenta.be/nl.sitemap.xml"], pattern: /^https:\/\/www\.argenta\.be\/nl\/kantoren\/[^/]+\.html$/ },
-  { key: "crelan", brand: "Crelan", sector: "bank", sitemaps: ["https://www.crelan.be/sitemap.xml"], pattern: /^https:\/\/www\.crelan\.be\/nl\/particulieren\/kantoor\/[^/]+\/?$/ },
+  { key: "crelan", brand: "Crelan", sector: "bank", sitemaps: ["https://www.crelan.be/sitemap.xml"], pattern: /^https:\/\/www\.crelan\.be\/nl\/kantoor\/[^/]+\/?$/ },
 ];
 
 /** Alle <loc>-URL's uit een sitemap, sitemap-indexen één niveau diep gevolgd. */
@@ -28,7 +28,7 @@ export async function sitemapUrls(url: string, depth = 0): Promise<string[]> {
   return locs;
 }
 
-export type BrandPage = { url: string; name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; email: string | null; website: string | null };
+export type BrandPage = { url: string; name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; email: string | null; website: string | null; lat: number | null; lng: number | null };
 
 /** Kantoorpagina's van één merk lezen: `offset` en `limit` maken het hervatbaar; gelezen pagina's zitten in page_cache. */
 export async function readBrandPages(site: BrandSite, offset: number, limit: number): Promise<{ total: number; pages: BrandPage[]; next: number | null }> {
@@ -46,8 +46,8 @@ export async function readBrandPages(site: BrandSite, offset: number, limit: num
         const title = page.html?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
         const parsed = page.html ? parseListingFromHtml(page.html, title) : parseListingFromText(page.text, title);
         if (!parsed) continue;
-        const email = (page.html ?? page.text).match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null;
-        pages.push({ url, name: cleanName(parsed.name, site.brand), address: parsed.address, postcode: parsed.postcode, municipality: parsed.municipality, phone: parsed.phone, email: email && !/example|sentry|wixpress/.test(email) ? email : null, website: url });
+        const email = parsed.email ?? (page.html ?? page.text).match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null;
+        pages.push({ url, name: cleanName(parsed.name, site.brand), address: parsed.address, postcode: parsed.postcode, municipality: parsed.municipality, phone: parsed.phone, email: email && !/example|sentry|wixpress|\.png$|\.jpg$/.test(email) ? email : null, website: url, lat: parsed.lat ?? null, lng: parsed.lng ?? null });
       }
     }),
   );
@@ -56,8 +56,7 @@ export async function readBrandPages(site: BrandSite, offset: number, limit: num
 
 /** Paginatitels zoals "Kantoor De Feyter bvba | Argenta" worden "Argenta De Feyter bvba". */
 export function cleanName(title: string, brand: string): string {
-  const base = title
-    .split(/\s*[|–—-]\s*(?=[^|–—-]*$)/)[0]
+  const base = titleCase(title.split("|")[0].trim())
     .replace(new RegExp(`\\b${brand}\\b`, "i"), "")
     .replace(/\b(kantoor|kantoorzoeker|zelfstandig bankagent|bankagent|agentschap)\b/gi, "")
     .replace(/\s+/g, " ")

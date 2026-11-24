@@ -120,3 +120,17 @@ describe("kantorenkaart: merksites", () => {
     expect(cleanName("", "Argenta")).toBe("Argenta");
   });
 });
+
+describe("kantorenkaart: merkpagina's (Argenta, Crelan)", () => {
+  it("leest de Argenta og:description", () => {
+    const html = `<html><head><title>HILDE VAN HECKE BV | ERTVELDE | Argenta</title><meta property="og:title" content="HILDE VAN HECKE BV"><meta property="og:description" content="LINDENLAAN 50 0001, 9940 ERTVELDE | +32 9 344 65 53 | Ertvelde@argenta.be"></head><body><a href="mailto:Ertvelde@argenta.be">x</a></body></html>`;
+    const p = parseListingFromHtml(html, "x");
+    expect(p).toMatchObject({ name: "Hilde Van Hecke BV", address: "Lindenlaan 50 0001, 9940 Ertvelde", postcode: "9940", municipality: "Ertvelde", phone: "+32 9 344 65 53", email: "ertvelde@argenta.be" });
+  });
+  it("leest de Crelan-adresvelden met coördinaten", () => {
+    const html = `<html><head><title>Brouns &amp; Van Keirsbilck Oostende | Crelan</title></head><body><main data-agencyzipcode="8400" data-agencycity="OOSTENDE"><div data-lat="51.230605" data-lng="2.914821"><meta property="latitude" content="51.230605" /><meta property="longitude" content="2.914821" /></div><span class="address-display-element address-line1-element">Hendrik Serruyslaan 5</span> <span class="address-display-element postal-code-element">8400</span> <span class="address-display-element locality-element">OOSTENDE</span><a href="tel:+32 59/559900">+32 59/559900</a><a href="mailto:oostende@crelan.be">m</a></main></body></html>`;
+    const p = parseListingFromHtml(html, "Brouns & Van Keirsbilck Oostende | Crelan");
+    expect(p).toMatchObject({ name: "Brouns & Van Keirsbilck Oostende", address: "Hendrik Serruyslaan 5, 8400 Oostende", postcode: "8400", municipality: "Oostende", lat: 51.230605, lng: 2.914821, email: "oostende@crelan.be" });
+    expect(p?.phone).toContain("+32 59/559900");
+  });
+});

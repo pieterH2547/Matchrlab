@@ -154,7 +154,7 @@ export const MAPS_QUERIES: Record<OfficeSector, string[]> = {
  * Gegevens van één vestiging uit een vrije tekst (bv. een profielpagina op vindeenverzekeringsmakelaar.be):
  * eerst JSON-LD (LocalBusiness/InsuranceAgency), anders de eerste "straat nr, 1234 Gemeente"-regel.
  */
-export type ParsedListing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; website: string | null; enterpriseNumber: string | null; fsmaNumber: string | null };
+export type ParsedListing = { name: string; address: string | null; postcode: string | null; municipality: string | null; phone: string | null; email?: string | null; website: string | null; enterpriseNumber: string | null; fsmaNumber: string | null; lat?: number | null; lng?: number | null };
 
 export function parseListingFromHtml(html: string, fallbackTitle: string): ParsedListing | null {
   const ld = [...html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
@@ -187,6 +187,46 @@ export function parseListingFromHtml(html: string, fallbackTitle: string): Parse
       /* geen geldige JSON-LD; verder met de tekst */
     }
   }
+  // Microdata/RDFa (itemprop of property) en Drupal-adresvelden (address-line1-element, postal-code-element, locality-element).
+  const attr = (names: string[]): string | null => {
+    for (const n of names) {
+      const m =
+        html.match(new RegExp(`(?:itemprop|property)=["']${n}["'][^>]*content=["']([^"']+)["']`, "i")) ??
+        html.match(new RegExp(`(?:itemprop|property)=["']${n}["'][^>]*>([^<]{1,160})<`, "i")) ??
+        html.match(new RegExp(`class=["'][^"']*\\b${n}\\b[^"']*["'][^>]*>([^<]{1,160})<`, "i"));
+      if (m?.[1]?.trim()) return decode(m[1]);
+    }
+    return null;
+  };
+  const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, " ").trim();
+  const ogTitle = html.match(/property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1];
+  const lat = Number(html.match(/(?:property|itemprop)=["']latitude["'][^>]*content=["']([-\d.]+)["']/i)?.[1] ?? html.match(/data-lat=["']([-\d.]+)["']/i)?.[1]);
+  const lng = Number(html.match(/(?:property|itemprop)=["']longitude["'][^>]*content=["']([-\d.]+)["']/i)?.[1] ?? html.match(/data-lng=["']([-\d.]+)["']/i)?.[1]);
+  const geo = Number.isFinite(lat) && Number.isFinite(lng) && lat > 49 && lat < 52 && lng > 2 && lng < 7 ? { lat, lng } : {};
+  const street = attr(["streetAddress", "address-line1-element"]);
+  const pc = (attr(["postalCode", "postal-code-element"]) ?? html.match(/data-[a-z]*zipcode=["'](\d{4})["']/i)?.[1] ?? "").match(/\d{4}/)?.[0] ?? null;
+  const city = attr(["addressLocality", "locality-element"]) ?? html.match(/data-[a-z]*city=["']([^"']+)["']/i)?.[1] ?? null;
+  const emailAny = html.match(/mailto:([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i)?.[1]?.toLowerCase() ?? null;
+  if (street && pc) {
+    return {
+      name: decode(ogTitle ?? fallbackTitle).split("|")[0].trim(),
+      address: `${street}, ${pc}${city ? ` ${titleCase(city)}` : ""}`,
+      postcode: pc,
+      municipality: city ? titleCase(city) : null,
+      phone: attr(["telephone"]) ?? html.match(/href=["']tel:([^"']+)["']/i)?.[1]?.replace(/[^\d+ /.-]/g, "").trim() ?? null,
+      email: emailAny,
+      website: null,
+      enterpriseNumber: null,
+      fsmaNumber: null,
+      ...geo,
+    };
+  }
+  // og:description, bv. "LINDENLAAN 50 0001, 9940 ERTVELDE | +32 9 344 65 53 | Ertvelde@argenta.be" (Argenta).
+  const og = html.match(/property=["']og:description["'][^>]*content=["']([^"']+)["']/i)?.[1];
+  if (og) {
+    const p = parseListingFromText(decode(og).replace(/\s*\|\s*/g, "\n"), decode(ogTitle ?? fallbackTitle));
+    if (p) return { ...p, email: p.email ?? emailAny, ...geo };
+  }
   const text = html
     .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, "\n")
@@ -194,23 +234,32 @@ export function parseListingFromHtml(html: string, fallbackTitle: string): Parse
     .replace(/&amp;/g, "&")
     .replace(/&nbsp;/g, " ")
     .replace(/[ \t]+/g, " ");
-  return parseListingFromText(text, fallbackTitle);
+  const p = parseListingFromText(text, decode(ogTitle ?? fallbackTitle));
+  return p ? { ...p, email: p.email ?? emailAny, ...geo } : null;
+}
+
+/** "LINDENLAAN 50" of "OOSTENDE" in hoofdletters wordt "Lindenlaan 50" en "Oostende"; gemengde tekst blijft zoals ze is. */
+export function titleCase(s: string): string {
+  if (s !== s.toUpperCase() || !/[A-Z]/.test(s)) return s;
+  return s.toLowerCase().replace(/(^|[\s\-'/(])\p{L}/gu, (m) => m.toUpperCase()).replace(/\b(Bv|Bvba|Nv|Cv|Vof)\b/g, (m) => m.toUpperCase());
 }
 
 export function parseListingFromText(text: string, fallbackTitle: string): ParsedListing | null {
-  const addr = text.match(/([A-Z][\p{L}'\-. ]{2,60}?\s\d{1,4}[a-zA-Z]?(?:\s?(?:bus|b|\/)\s?\w+)?)\s*[,\n]\s*([1-9]\d{3})\s+([\p{L}\-' ]{2,40}?)(?=[\s,.\n]|$)/u);
+  const addr = text.match(/([A-Z][\p{L}'\-. ]{2,60}?\s\d{1,4}[a-zA-Z]?(?:\s?(?:bus|b|\/)\s?\w+)?(?:\s\d{1,4})?)\s*[,\n]\s*([1-9]\d{3})\s+([\p{L}\-' ]{2,40}?)(?=[\s,.\n|]|$)/u);
   if (!addr) return null;
+  const email = text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0]?.toLowerCase() ?? null;
   const fsma = text.match(/\bFSMA\b[^0-9]{0,20}(\d{4,6})\s*([A-Za-z-]{1,6})?/i);
   const kbo = text.match(/\b(?:BE\s?)?0\d{3}[. ]?\d{3}[. ]?\d{3}\b/);
   const phone = text.match(/(?:\+32|0)\s?\d(?:[\s./-]?\d){7,8}\b/);
   const site = text.match(/https?:\/\/(?!www\.vindeenverzekeringsmakelaar\.be)[\w.-]+\.[a-z]{2,}[^\s"'<>]*/i);
   const title = fallbackTitle.replace(/\s*[|\-–]\s*(vind ?een ?verzekeringsmakelaar.*|fvf.*)$/i, "").trim();
   return {
-    name: title || addr[1].trim(),
-    address: `${addr[1].trim()}, ${addr[2]} ${addr[3].trim()}`,
+    name: titleCase(title) || titleCase(addr[1].trim()),
+    address: `${titleCase(addr[1].trim())}, ${addr[2]} ${titleCase(addr[3].trim())}`,
     postcode: addr[2],
-    municipality: addr[3].trim(),
+    municipality: titleCase(addr[3].trim()),
     phone: phone?.[0]?.trim() ?? null,
+    email,
     website: site?.[0] ?? null,
     enterpriseNumber: kbo ? kbo[0].replace(/[^0-9]/g, "") : null,
     fsmaNumber: fsma ? `${fsma[1]}${fsma[2] ? ` ${fsma[2]}` : ""}` : null,

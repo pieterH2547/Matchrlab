@@ -582,7 +582,7 @@ export function MapExplorer() {
             </div>
             <p className="mt-2 text-ink-faint leading-relaxed">
               Vacatures zoeken: de websites van de kantoren in de straal gaan in de vacature-crawler (jobpagina, ATS, extractie), 16 per ronde, daarna dagelijks vers. Bij een merksite (KBC, Belfius, …) gelden de vacatures voor het merk, niet per se voor dit kantoor. Rond de woonplaats: Google Maps zoekt elk kantoor per gemeente binnen de straal (max 40 nieuwe zoekopdrachten per ronde; klik opnieuw voor de rest, cache 14 dagen); OpenStreetMap haalt alle banken en verzekeringskantoren uit de open kaartdata (gratis). FVF-gids leest
-              profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan de kantoorpagina's van argenta.be en crelan.be, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
+              profielen van vindeenverzekeringsmakelaar.be via de zoekketen; het FSMA-register komt uit Instellingen → Sectoren. Heel Vlaanderen: eerst OpenStreetMap in zes stukken, dan de kantoorpagina&apos;s van argenta.be en crelan.be, dan Google Maps in rondes van 100 zoekopdrachten (±3.000 in totaal) tot alles gedaan is. Dezelfde vestiging uit twee bronnen wordt samengevoegd en telt als bevestigd.
             </p>
             {log.length > 0 && (
               <ul className="mt-2 space-y-0.5 text-ink-soft">
