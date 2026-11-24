@@ -32,7 +32,8 @@ import type { JobsPageResult } from "./findJobsPage";
 import { fetchPage } from "@/lib/fetch";
 import { countCall } from "@/lib/usage";
 import { isIntermediaryCompany } from "@/lib/blocklist";
-import { withinProfileRadius } from "@/lib/geo";
+import { regionCenter, withinProfileRadius } from "@/lib/geo";
+import { officesNear } from "@/lib/offices/collect";
 import type { RunState, StepState, NormalizedJob, Profile, EmployerView } from "./types";
 
 export type Emit = (event: { type: "steps"; steps: StepState[] } | { type: "status"; status: Run["status"]; state: RunState } | { type: "error"; message: string }) => void;
@@ -571,6 +572,9 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
         const matchedCompanyIds = new Set(result.scored.map((s) => s.job.companyId).filter((x): x is number => x !== null));
         const employersRaw = await buildEmployers(profile, state.companyDomains ?? [], matchedCompanyIds, meter).catch(() => []);
         const employers = await withContacts(employersRaw);
+        // Kantorenkaart: elk bank- en verzekeringskantoor binnen de straal, ook zonder vacature (geen AI, geen kosten).
+        const officeCenter = regionCenter(profile);
+        const offices = officeCenter ? (await officesNear(officeCenter, profile.radius_km, ["bank", "verzekeringen"]).catch(() => [])).slice(0, 120) : [];
 
         const verifiedActive = result.scored.filter((s) => verdicts.get(s.job.id)?.status === "actief").length;
         state = {
@@ -581,6 +585,7 @@ async function advanceRunInner(runId: number, emit: Emit): Promise<Run["status"]
           intro: result.intro,
           followups: result.followups,
           employers,
+          offices,
           stats: {
             ...(state.stats ?? {}),
             uniqueJobs: dedupedJobs.length,

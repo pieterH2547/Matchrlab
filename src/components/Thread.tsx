@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { RunView, Profile, StepState, MatchView, EmployerView, RunStats } from "@/lib/pipeline/types";
+import type { OfficeView } from "@/lib/offices/collect";
 
 export function Thread({
   runs,
@@ -123,6 +124,20 @@ function AssistantMessage({
         </Section>
       )}
 
+      {done && run.profile && (run.state.offices?.length ?? 0) > 0 && (
+        <Section
+          title={`${run.state.offices!.length} bank- en verzekeringskantoren binnen ${run.profile.radius_km} km`}
+          action={
+            <a href={`/kaart?plaats=${encodeURIComponent(run.profile.region)}&straal=${run.profile.radius_km}`} className="text-[12.5px] text-navy underline decoration-gold decoration-2 underline-offset-2">
+              Op de kaart ↗
+            </a>
+          }
+        >
+          <p className="text-xs text-ink-faint mt-2">Elk kantoor is een kans om de kandidaat voor te stellen, ook zonder vacature. Dichtstbij eerst; met open vacatures bovenaan. Staat ook in de export.</p>
+          <OfficeList offices={run.state.offices!} />
+        </Section>
+      )}
+
       {done && run.profile && (run.profile.open_questions?.length ?? 0) > 0 && run.matches.length > 0 && (
         <Section title="Nog na te vragen bij de kandidaat">
           <ol className="list-decimal pl-5 space-y-1 text-[15px]">
@@ -192,6 +207,59 @@ function EmployerCard({ e }: { e: EmployerView }) {
     </article>
   );
 }
+
+/** Kantoren uit de kantorenkaart, compact: eerst met vacatures, dan dichtstbij. Inklapbaar na 12. */
+function OfficeList({ offices }: { offices: OfficeView[] }) {
+  const [all, setAll] = useState(false);
+  const sorted = [...offices].sort((a, b) => Number(b.openJobs > 0) - Number(a.openJobs > 0) || a.distanceKm - b.distanceKm);
+  const shown = all ? sorted : sorted.slice(0, 12);
+  return (
+    <div>
+      <ul className="divide-y divide-line">
+        {shown.map((o) => (
+          <li key={o.id} className="flex items-start gap-2.5 py-2.5 text-[14px]">
+            <span className="mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: o.sector === "bank" ? "#1b1845" : "#e0a410" }} aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline justify-between gap-2">
+                {o.website ? (
+                  <a href={o.website} target="_blank" rel="noopener noreferrer" className="truncate font-medium text-navy hover:underline underline-offset-4">
+                    {o.name}
+                  </a>
+                ) : (
+                  <span className="truncate font-medium text-navy">{o.name}</span>
+                )}
+                <span className="mono shrink-0 text-xs text-ink-faint">{o.distanceKm} km</span>
+              </span>
+              <span className="block text-[12.5px] text-ink-soft">
+                {OFFICE_KIND[o.kind] ?? o.kind}
+                {o.brand ? ` · ${o.brand}` : ""}
+                {o.address ? ` · ${o.address}` : o.municipality ? ` · ${o.municipality}` : ""}
+                {o.phone ? ` · ${o.phone}` : ""}
+              </span>
+              {(o.openJobs > 0 || o.verified) && (
+                <span className="mt-0.5 flex flex-wrap gap-1 text-[11px]">
+                  {o.openJobs > 0 && (
+                    <a href={o.careersUrl ?? o.website ?? "#"} target="_blank" rel="noopener noreferrer" className="rounded-full bg-[#dcfce7] px-2 py-0.5 font-medium text-ok">
+                      {o.openJobs} open vacature{o.openJobs === 1 ? "" : "s"} ↗
+                    </a>
+                  )}
+                  {o.verified && <span className="rounded-full bg-gold-soft px-2 py-0.5 font-medium text-[#8a6300]">bevestigd</span>}
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {sorted.length > 12 && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 text-[12.5px] text-ink-soft hover:text-navy">
+          {all ? "Toon minder" : `Toon alle ${sorted.length} kantoren`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const OFFICE_KIND: Record<string, string> = { bankkantoor: "Bankkantoor", verzekeringsmakelaar: "Verzekeringsmakelaar", verzekeringsagent: "Verzekeringsagent", "financieel-adviseur": "Financieel adviseur", onbekend: "Kantoor" };
 
 /** Contactadres om de kandidaat voor te stellen: klikbaar (mail) en kopieerbaar, met de vindplaats. */
 /** Contactpersoon en mailadres om de kandidaat voor te stellen: klikbaar en kopieerbaar. */
@@ -286,15 +354,29 @@ export function matchesAsText(run: Pick<RunView, "candidateName" | "profile" | "
       .join("\n"),
   );
   const emps = (run.state.employers ?? []).map((e) => `- ${e.name}${e.municipality ? `, ${e.municipality}` : ""} · ${e.website}${e.contactEmail ? ` · ${e.contactName ? `${e.contactName}, ` : ""}${e.contactEmail}` : ""}`);
-  return [head, "", "Vacatures", ...jobs, ...(emps.length ? ["", "Interessante werkgevers (geen bewezen vacature)", ...emps] : [])].join("\n");
+  const offs = (run.state.offices ?? []).map((o) => `- ${o.name} (${OFFICE_KIND[o.kind] ?? o.kind}${o.brand ? `, ${o.brand}` : ""}) · ${o.address ?? o.municipality ?? ""} · ${o.distanceKm} km${o.openJobs > 0 ? ` · ${o.openJobs} open vacature${o.openJobs === 1 ? "" : "s"}` : ""}${o.website ? ` · ${o.website}` : ""}${o.phone ? ` · ${o.phone}` : ""}`);
+  return [
+    head,
+    "",
+    "Vacatures",
+    ...jobs,
+    ...(emps.length ? ["", "Interessante werkgevers (geen bewezen vacature)", ...emps] : []),
+    ...(offs.length ? ["", `Bank- en verzekeringskantoren binnen ${run.profile?.radius_km ?? "?"} km (kansen, ook zonder vacature)`, ...offs] : []),
+  ].join("\n");
+}
+
+/** Rijen voor de Excel-export: vacatures, dan kantoren (kansen). Eén tabel met een typekolom. */
+export function csvRows(run: Pick<RunView, "matches" | "state">): (string | number | null | undefined)[][] {
+  return [
+    ["Type", "Score", "Functie / soort kantoor", "Werkgever", "Merk", "Locatie", "Afstand (km)", "Waarom match", "Risico", "Contactpersoon", "E-mail", "Telefoon", "Link", "Verificatie / bronnen", "Open vacatures"],
+    ...run.matches.map((m) => ["Vacature", Math.round(m.score / 10), m.title, m.company, "", m.location, "", m.argument || m.reason, m.risk, m.contactName, m.contactEmail, "", m.url, m.verification, ""]),
+    ...(run.state.offices ?? []).map((o) => ["Kantoor", "", OFFICE_KIND[o.kind] ?? o.kind, o.name, o.brand, o.address ?? o.municipality, o.distanceKm, "", "", "", "", o.phone, o.careersUrl ?? o.website, o.sources.join(", ") + (o.verified ? " (bevestigd)" : ""), o.openJobs]),
+  ];
 }
 
 function downloadCsv(run: RunView) {
   const cell = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [
-    ["Score", "Functie", "Werkgever", "Locatie", "Waarom match", "Risico", "Contactpersoon", "E-mail", "Vacaturelink", "Verificatie"],
-    ...run.matches.map((m) => [Math.round(m.score / 10), m.title, m.company, m.location, m.argument || m.reason, m.risk, m.contactName, m.contactEmail, m.url, m.verification]),
-  ];
+  const rows = csvRows(run);
   // Puntkomma en BOM: opent correct in een Belgische Excel.
   const csv = "\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });

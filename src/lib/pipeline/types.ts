@@ -150,6 +150,8 @@ export type RunState = {
   actions?: ActionView[];
   /** Werkgevers (spoor B-resultaat), max 10. */
   employers?: EmployerView[];
+  /** Kantorenkaart: bank- en verzekeringskantoren binnen de straal, dichtstbij eerst, ook zonder vacature. */
+  offices?: import("@/lib/offices/collect").OfficeView[];
   /** Run-overzicht: tellers, API-aanroepen per bron, mislukte bronnen, duur. */
   stats?: RunStats;
   /** Alle domeinen die deze run in beeld bracht (ook hergebruikte), voor de werkgeverslijst. */

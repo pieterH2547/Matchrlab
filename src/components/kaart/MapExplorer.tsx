@@ -86,6 +86,10 @@ export function MapExplorer() {
       } catch {
         /* geen localStorage */
       }
+      // Vanuit een run: ?plaats=Mechelen&straal=20 wint van het onthouden adres.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("plaats")) p = params.get("plaats")!;
+      if (Number(params.get("straal"))) r = Number(params.get("straal"));
       setQuery(p);
       setPlaats(p);
       setRadius(r);
